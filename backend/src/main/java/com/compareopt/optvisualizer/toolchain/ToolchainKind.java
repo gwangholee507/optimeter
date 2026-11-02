@@ -9,7 +9,8 @@ package com.compareopt.optvisualizer.toolchain;
  */
 public enum ToolchainKind {
     CLANG(new GccStyleToolchain(false)),
-    GCC(new GccStyleToolchain(true));
+    GCC(new GccStyleToolchain(true)),
+    RUSTC(new RustcToolchain());
 
     private final Toolchain toolchain;
 

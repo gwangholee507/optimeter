@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *
  * macOS/Linux/Windows 어디서든 clang이 설치되어 있어야 통과한다 (CI는 세 OS 모두에서 돌린다).
  * 그래서 검증 내용도 특정 OS의 경로나 심볼 표기에 기대지 않도록 작성한다.
- * gcc와 C++(clangxx, gxx) 테스트는 그 컴파일러가 없으면 건너뛴다 (macOS의 gcc/g++는 clang 별칭이라
+ * gcc, C++(clangxx, gxx), rustc 테스트는 그 컴파일러가 없으면 건너뛴다 (macOS의 gcc/g++는 clang 별칭이라
  * toolchain: gcc가 걸러냄). 단, CI가 OPTVIS_REQUIRED_COMPILERS로 필수 지정한 컴파일러는 없으면 실패한다
  * (RequiredCompilers 참고).
  */
@@ -45,7 +45,8 @@ class CompilerServiceTest {
                         "gcc-16", "gcc-15", "gcc-14", "gcc-13", "gcc-12", "gcc"),
                 option("clangxx", "Clang++ (LLVM)", Language.CPP, ToolchainKind.CLANG, "clang++"),
                 option("gxx", "GNU G++", Language.CPP, ToolchainKind.GCC,
-                        "g++-16", "g++-15", "g++-14", "g++-13", "g++-12", "g++")));
+                        "g++-16", "g++-15", "g++-14", "g++-13", "g++-12", "g++"),
+                option("rustc", "rustc (LLVM)", Language.RUST, ToolchainKind.RUSTC, "rustc")));
         ProcessRunner processRunner = new ProcessRunner();
         registry = new CompilerRegistry(properties, processRunner);
         compilerService = new CompilerService(registry, processRunner);
@@ -287,6 +288,135 @@ class CompilerServiceTest {
         assertThat(results).allSatisfy(r -> {
             assertThat(r.isSuccess()).isFalse();
             assertThat(r.getErrorMessage()).contains("input.cpp");
+            assertThat(r.getErrorMessage()).doesNotContain("opt-visualizer-");
+        });
+    }
+
+    @Test
+    void Rust_라이브러리_코드는_모든_레벨에서_컴파일에_성공한다() {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = """
+                fn square(x: i32) -> i32 {
+                    x * x
+                }
+
+                pub fn sum_loop(n: i32) -> i32 {
+                    (0..n).map(square).sum()
+                }
+                """;
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", false);
+
+        assertThat(results).extracting(OptimizationResult::getLevel).containsExactly("0", "1", "2", "3", "s", "z");
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getCompilerId()).isEqualTo("rustc");
+            // Rust 심볼은 맹글링되지만 원래 이름은 그 안에 그대로 들어 있다
+            assertThat(r.getAssembly()).contains("sum_loop");
+            assertThat(r.getAssembly()).doesNotContain("\r");
+            assertThat(r.getBinarySizeBytes()).isGreaterThan(0);
+            assertThat(r.getNotice()).isNull();
+        });
+    }
+
+    @Test
+    void 작은_pub_함수도_최적화_레벨에서_어셈블리에_남는다() {
+        // rustc는 작은 pub fn을 쓰는 쪽 크레이트에서 인라인하려고 미뤄서 O1부터 어셈블리에서 지운다.
+        // -C incremental로 막고 있는데 공식 동작이 아니므로, rustc가 바뀌면 이 테스트가 알려준다.
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = "pub fn add(a: i32, b: i32) -> i32 { a + b }";
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", false);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getAssembly()).contains("add");
+            assertThat(r.getNotice()).isNull();
+        });
+    }
+
+    @Test
+    void 비공개_함수만_있는_Rust_코드는_성공하지만_안내_문구가_붙는다() {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = "fn square(x: i32) -> i32 { x * x }";
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", false);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getAssembly()).doesNotContain("square");
+            assertThat(r.getNotice()).contains("pub fn");
+        });
+    }
+
+    @Test
+    void main이_있는_Rust_코드는_프로그램으로_컴파일되어_실행_시간이_측정된다() {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = """
+                fn add(a: i32, b: i32) -> i32 {
+                    a + b
+                }
+
+                fn main() {
+                    println!("{}", add(1, 2));
+                }
+                """;
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", true);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getAssembly()).contains("main");
+            assertThat(r.getExecutionTimeMs()).as(r.getExecutionError()).isNotNull();
+        });
+    }
+
+    @Test
+    void Rust_코드가_패닉으로_끝난_레벨은_실행_시간을_재지_않는다() {
+        // 오버플로 검사는 레벨 0에서만 켜진다. 패닉으로 바로 끝난 시간을 그대로 재면 레벨 0이 가장 빠르게 보인다.
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = """
+                use std::hint::black_box;
+
+                fn main() {
+                    println!("{}", black_box(i32::MAX) + black_box(1));
+                }
+                """;
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", true);
+
+        OptimizationResult level0 = results.get(0);
+        assertThat(level0.getExecutionTimeMs()).isNull();
+        assertThat(level0.getExecutionError()).contains("101");
+
+        OptimizationResult level3 = results.get(3);
+        assertThat(level3.getExecutionTimeMs()).as(level3.getExecutionError()).isNotNull();
+    }
+
+    @Test
+    void main이_없는_Rust_코드는_실행만_건너뛴다() {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = "pub fn add(a: i32, b: i32) -> i32 { a + b }";
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", true);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getExecutionTimeMs()).isNull();
+            assertThat(r.getExecutionError()).contains("실행 파일을 만들 수 없습니다");
+        });
+    }
+
+    @Test
+    void Rust_컴파일_에러는_input_rs_파일_이름으로_표시된다() {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String brokenCode = "pub fn f(x: i32) -> i32 { retrun x; }";
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(brokenCode, "rustc", false);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).isFalse();
+            assertThat(r.getErrorMessage()).contains("input.rs");
             assertThat(r.getErrorMessage()).doesNotContain("opt-visualizer-");
         });
     }

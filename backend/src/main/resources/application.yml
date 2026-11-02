@@ -9,9 +9,11 @@ server:
 compiler:
   # 프론트엔드가 선택할 수 있는 컴파일러 목록. 화면은 이 순서를 유지한 채 language별로 묶어서 보여준다.
   #
-  # language: 사용자 코드의 언어 (c, cpp). 소스 파일 이름(c → input.c, cpp → input.cpp)이 이 값으로 정해진다. 필수.
+  # language: 사용자 코드의 언어 (c, cpp, rust). 소스 파일 이름(c → input.c, cpp → input.cpp, rust → input.rs)이
+  #   이 값으로 정해진다. 필수.
   # toolchain: 컴파일러 계열. 어떤 인자로 컴파일러를 부르고 설치 여부를 어떻게 확인할지가 이 값으로 정해진다. 필수.
   #   clang, gcc는 둘 다 -S / -c / -O2 같은 GCC식 인자를 쓰고, gcc는 진짜 GNU GCC인지까지 확인한다.
+  #   rustc는 --emit / -C opt-level=2 같은 자체 인자를 쓴다.
   #   (사용할 수 있는 값은 toolchain 패키지의 Language, ToolchainKind 참고)
   #
   # candidates: 모든 OS에서 순서대로 시도해서, 서버에서 실제로 실행되는 첫 번째 것을 사용한다.
@@ -70,6 +72,21 @@ compiler:
         windows:
           - 'C:\msys64\ucrt64\bin\g++.exe'
           - 'C:\msys64\mingw64\bin\g++.exe'
+    # Rust는 cargo 없이 rustc를 직접 부르므로 표준 라이브러리만 쓸 수 있다.
+    # rustup은 셸 설정 파일로 ~/.cargo/bin을 PATH에 넣기 때문에, 셸을 거치지 않고 서버를 띄우면 PATH에 없을 수 있다.
+    - id: rustc
+      label: "rustc (LLVM)"
+      language: rust
+      toolchain: rustc
+      candidates: ["${OPTVIS_RUSTC:}", rustc]
+      os-candidates:
+        windows:
+          - '${user.home}\.cargo\bin\rustc.exe'
+          - 'C:\msys64\ucrt64\bin\rustc.exe'
+        macos:
+          - '${user.home}/.cargo/bin/rustc'
+        linux:
+          - '${user.home}/.cargo/bin/rustc'
 
 logging:
   level:
