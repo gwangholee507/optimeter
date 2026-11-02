@@ -1,6 +1,6 @@
 # 문서 (Docs)
 
-이 폴더는 **컴파일러 최적화 옵션 비교기** 프로젝트의 함수/모듈 단위 설명서입니다.
+이 폴더는 **Optimeter**(컴파일러 최적화 옵션 비교기) 프로젝트의 함수/모듈 단위 설명서입니다.
 코드를 처음부터 다시 읽지 않고도 "이 함수가 뭘 하는지"를 빠르게 파악하기 위한 용도입니다.
 
 ## 구성
@@ -16,6 +16,7 @@
 | [branching-strategy.md](./branching-strategy.md) | Git 브랜치 전략 (GitHub Flow) — 브랜치 이름 규칙, PR/머지 규칙 |
 | [commit-convention.md](./commit-convention.md) | 커밋 메시지 규칙 (Conventional Commits) |
 | [release.md](./release.md) | 릴리스 방법 — 버전 태그를 올리면 실행 가능한 jar가 자동으로 배포됨 |
+| [brand/](./brand/) | 로고 원본 — 앱 아이콘, 가로 로고(어두운/밝은 배경). 화면 헤더용 사본은 `frontend/src/assets/`, 파비콘은 `frontend/public/`에 있음 |
 
 ## 코드가 바뀌면?
 
