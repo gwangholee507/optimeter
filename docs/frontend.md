@@ -5,8 +5,9 @@
 
 외부 라이브러리 없이 직접 구현한 줄 단위 diff 유틸리티.
 
-### `diffLines(base, target) : { lineStates, addedCount, removedCount } | null`
-- **입력**: `base`(기준이 되는 줄 배열, 보통 O0 어셈블리), `target`(비교 대상 줄 배열)
+### `diffLines(baseLines, targetLines) : { lineStates, addedCount, removedCount } | null`
+- **입력**: `baseLines`(기준이 되는 줄 배열, 보통 O0 어셈블리), `targetLines`(비교 대상 줄 배열).
+  `.file` 지시어는 내용과 상관없이 같은 줄로 봅니다. 코드가 아니라 컴파일 단위의 이름이고, rustc는 `-C incremental`을 쓰면 이 이름이 레벨마다 달라집니다
 - **알고리즘**: 앞뒤의 같은 줄을 덜어내고 남은 줄을 정수로 바꾼 뒤, LCS(최장 공통 부분 수열)를 DP 테이블(`Uint16Array`)로 계산하고 되짚어가며(backtrack)
   - `base[i] === target[j]`면 `'same'`
   - 아니고 `base`에서 삭제하는 게 유리하면(`dp[i+1][j] >= dp[i][j+1]`) `removedCount` 증가

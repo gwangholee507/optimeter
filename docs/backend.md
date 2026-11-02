@@ -96,7 +96,8 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
    `Toolchain.forSource(sourceCode)`로 이 코드에 맞는 toolchain을 고름 (실패 시 예외)
 2. `Files.createTempDirectory()`로 임시 작업 디렉터리 생성
 3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`, C++은 `input.cpp`, Rust는 `input.rs`)으로 저장
-4. `Toolchain.levels()`(clang/gcc는 `O0`~`O3`의 `OptLevel`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록
+4. `Toolchain.levels()`(clang/gcc는 `O0`~`O3`의 `OptLevel`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록.
+   실패했을 때 `Toolchain.correctedBy()`가 다른 toolchain을 돌려주면 그 레벨을 다시 컴파일하고 남은 레벨에도 그 toolchain을 씀
 5. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
 6. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
 
@@ -128,7 +129,9 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
 - 작업 디렉터리를 `workDir`로 두고 파일은 상대 경로(`input.c`, `out-O0.s`)로만 넘김. 그래서 에러 메시지에
   서버 임시 디렉터리의 절대 경로 대신 `input.c:1:16: error: ...`처럼 파일 이름만 찍히고(별도 치환 불필요),
   임시 디렉터리 경로에 공백이나 한글이 있어도 컴파일러 인자로 전달되지 않음
-- **10초 타임아웃**(`COMPILE_TIMEOUT_SECONDS`) — 초과하면 `"컴파일 시간 초과"` 메시지를 담은 실패 결과 반환
+- **30초 타임아웃**(`COMPILE_TIMEOUT_SECONDS`) — 초과하면 `"컴파일 시간 초과"` 메시지를 담은 실패 결과 반환.
+  새로 켠 컴퓨터의 첫 컴파일은 컴파일러와 표준 라이브러리를 디스크에서 읽느라 짧은 코드도 10초를 넘길 수 있어서 넉넉하게 잡음.
+  명령마다 적용되므로 컴파일되지 않는 코드는 레벨 수만큼 기다림 (Rust는 6개 레벨이라 최대 3분)
 - 프로세스를 시작하지 못한 경우(`IOException`)에도 예외 대신 사유를 담은 실패 결과를 반환
 
 ### `cleanup(Path workDir)` / `deleteRecursively(Path dir)` (private)
@@ -177,6 +180,8 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 - `versionArgs()` / `versionMismatch(output)`: 설치 확인에 쓸 인자와, 그 출력이 이 계열의 컴파일러가 맞는지 판정
   (맞으면 empty, 아니면 건너뛰는 이유 — 시작 로그에 남음)
 - `forSource(sourceCode)`: 이 코드를 컴파일할 때 쓸 Toolchain. 기본은 자기 자신이고, 코드 모양에 따라 명령줄이 달라지는 계열만 재정의
+- `correctedBy(compilerOutput)`: 컴파일 실패 출력을 보고 `forSource()`의 선택이 틀렸으면 다시 컴파일할 Toolchain을 돌려줌. 기본은 없음.
+  `CompilerService`가 그 레벨을 다시 컴파일하고 남은 레벨에도 같은 Toolchain을 씀
 - `codegenCommands()`: 어셈블리와 오브젝트 파일을 만드는 명령들의 인자. 진입점이 없어도 성공해야 함.
   첫 번째 명령이 어셈블리를 만들고, 실패하면 컴파일 실패가 됨. 한 번에 둘 다 만드는 컴파일러는 명령을 하나만 돌려줌
 - `executableArgs()`: 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 됨 (실행 측정만 건너뜀)
@@ -193,7 +198,8 @@ clang과 GCC처럼 GCC식 명령줄(`-S`, `-c`, `-O2`)을 쓰는 컴파일러. C
 cargo 없이 rustc를 직접 부르는 구현. 단일 파일과 표준 라이브러리만 쓸 수 있습니다. 레벨은 `0`~`3`, `s`, `z`입니다.
 
 GCC식 컴파일러와 달리 크레이트 종류에 따라 결과가 크게 달라서, `forSource()`가 주석을 지운 코드에서 `fn main`을 찾아 종류를 고릅니다.
-문법을 해석하지 않으므로 틀릴 수 있지만, 잘못 찾으면 rustc가 E0601로 알려주고 놓치면 어셈블리가 비어 안내 문구가 나옵니다.
+문법을 해석하지 않으므로 틀릴 수 있습니다. 메서드, 문자열, 모듈 안의 `fn main`을 잘못 찾으면 rustc가 E0601을 내므로 `correctedBy()`가 라이브러리로 바로잡고,
+매크로가 만드는 `main`처럼 놓치면 어셈블리가 비어 안내 문구가 나옵니다.
 
 | 코드 | 명령 | 이유 |
 |---|---|---|
@@ -212,8 +218,9 @@ GCC식 컴파일러와 달리 크레이트 종류에 따라 결과가 크게 달
   이 효과를 확인합니다. 실행 파일에는 쓰지 않습니다.
 - 비공개 함수까지 보여주는 `-C link-dead-code`는 쓰지 않습니다. 인라인되고 남은 제네릭 함수까지 전부 남아서 `pub` 함수와 반복자로 쓴
   예제 기준으로 `opt-level=2`의 어셈블리가 34줄에서 183줄로, 오브젝트 파일이 696B에서 3,264B로 늘어나 비교가 왜곡됩니다.
-  대신 함수가 하나도 없으면 `assemblyNotice()`가 `pub fn`을 안내합니다 (`.cfi_startproc`이 없는 어셈블리. Windows의 작은 함수에는
-  이 지시어도 `.seh_proc`도 없어서, COFF 함수 심볼에 항상 붙는 `.type 32;`로 판정합니다).
+  대신 함수가 하나도 없으면 `assemblyNotice()`가 이유를 안내합니다 (`.cfi_startproc`이 없는 어셈블리. Windows의 작은 함수에는
+  이 지시어도 `.seh_proc`도 없어서, COFF 함수 심볼에 항상 붙는 `.type 32;`로 판정합니다). `#[inline]`이 붙은 함수도 쓰는 쪽 크레이트에서
+  만들어지므로 `pub`이어도 라이브러리의 어셈블리에는 없습니다.
 - 어셈블리와 오브젝트 파일을 한 번의 실행으로 만듭니다. 따로 실행할 때보다 40%쯤 빠르고(`HashMap`을 쓰는 17줄 프로그램의 6개 레벨 기준
   3.96초에서 2.42초로), 어셈블리와 크기가 같은 컴파일의 결과가 됩니다.
 - 레벨 0에서만 오버플로 검사가 켜져 있어서(`cargo build`, `cargo build --release`와 같은 동작) 같은 코드가 레벨 0에서만 패닉으로
@@ -245,6 +252,7 @@ stdout+stderr를 합쳐서 캡처하며 실행.
 - `workDir`가 있으면 그 디렉터리를 작업 디렉터리로 지정, `toolDir`가 있으면 자식 프로세스의 PATH 맨 앞에 추가
 - 타임아웃 시 **자식 프로세스까지** 강제 종료(`killTree`). 드라이버(`gcc`)만 죽이면 실제 컴파일러(`cc1`)가
   살아남고, Windows에서는 그 프로세스가 임시 파일을 잡고 있어 정리가 실패함
+- 표준 입력을 바로 닫음. 입력을 읽는 프로그램이 오지 않을 입력을 기다리다 "시간 초과"로 처리되지 않도록, 입력이 끝난 상태로 실행됨
 - 실행 파일이 없는 등 프로세스를 시작조차 못 하면 `IOException`을 던짐 (`CompilerRegistry`는 이걸 "설치 안 됨"으로 해석)
 
 #### `runDiscardingOutput(command, workDir, toolDir, timeout) : ProcessResult`

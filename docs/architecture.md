@@ -86,7 +86,7 @@ OS마다 사정이 다릅니다. 이런 차이는 아래 세 곳에만 모아두
 | OS마다 다른 것 | 처리하는 곳 | 방법 |
 |---|---|---|
 | 컴파일러가 설치되는 위치 | `application.yml`의 `os-candidates` + `CompilerRegistry` | PATH의 이름을 먼저 시도하고, 그 OS의 기본 설치 위치(Windows의 MSYS2, LLVM)를 이어서 시도. 그래도 못 찾으면 `OPTVIS_CLANG`/`OPTVIS_GCC`/`OPTVIS_CLANGXX`/`OPTVIS_GXX`/`OPTVIS_RUSTC` 환경 변수로 직접 지정 |
-| 프로세스 실행/종료 방식 | `platform.ProcessRunner` | 출력은 파일로 받고(파이프 버퍼가 차서 멈추는 문제 방지), 타임아웃 시 자식 프로세스까지 종료, PATH 환경 변수 이름의 대소문자 차이 흡수 |
+| 프로세스 실행/종료 방식 | `platform.ProcessRunner` | 출력은 파일로 받고(파이프 버퍼가 차서 멈추는 문제 방지), 표준 입력은 바로 닫고, 타임아웃 시 자식 프로세스까지 종료, PATH 환경 변수 이름의 대소문자 차이 흡수 |
 | 지금 어떤 OS인지 판단 | `platform.HostOs` | JVM의 `os.name`으로 판단. `os-candidates`의 키(`windows`/`macos`/`linux`)를 고르는 데만 사용 |
 
 그 밖에 OS 차이를 **분기 없이** 피해 가는 장치들:
