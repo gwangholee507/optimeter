@@ -105,7 +105,17 @@ class RustcToolchainTest {
 
         assertThat(rustc.assemblyNotice(empty)).hasValueSatisfying(notice -> assertThat(notice).contains("pub fn"));
         assertThat(rustc.assemblyNotice("add:\n\t.cfi_startproc\n\tret\n\t.cfi_endproc\n")).isEmpty();
-        assertThat(rustc.assemblyNotice("add:\n.seh_proc add\n\tret\n.seh_endproc\n")).isEmpty();
+    }
+
+    @Test
+    void Windows_어셈블리는_함수_심볼의_type_32로_판정한다() {
+        // 함수가 없어도 @feat.00 심볼 때문에 .def와 .type 0;은 나온다
+        String feat = "\t.def\t@feat.00;\n\t.scl\t3;\n\t.type\t0;\n\t.endef\n\t.globl\t@feat.00\n@feat.00 = 0\n";
+        // 스택을 쓰지 않는 작은 함수에는 .seh_proc도 .cfi_startproc도 없다 (rustc가 Windows용으로 실제 출력한 모양)
+        String function = "\t.def\tadd;\n\t.scl\t2;\n\t.type\t32;\n\t.endef\n\t.globl\tadd\nadd:\n\tretq\n";
+
+        assertThat(rustc.assemblyNotice(feat)).isPresent();
+        assertThat(rustc.assemblyNotice(feat + function)).isEmpty();
     }
 
     private List<String> commandOf(String code) {

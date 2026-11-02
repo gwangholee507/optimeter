@@ -38,8 +38,9 @@ final class RustcToolchain implements Toolchain {
 
     private static final Pattern COMMENT = Pattern.compile("//[^\n]*|/\\*.*?\\*/", Pattern.DOTALL);
     private static final Pattern MAIN_FUNCTION = Pattern.compile("\\bfn\\s+main\\s*\\(");
-    // 함수마다 하나씩 나오는 지시어 (Windows는 .seh_proc, 그 외는 .cfi_startproc)
-    private static final Pattern FUNCTION_DIRECTIVE = Pattern.compile("\\.cfi_startproc|\\.seh_proc");
+    // 함수가 있으면 나오는 지시어. Windows(COFF)의 작은 함수에는 .cfi_startproc도 .seh_proc도 없어서
+    // 함수 심볼에 항상 붙는 .type 32;로 찾는다.
+    private static final Pattern FUNCTION_DIRECTIVE = Pattern.compile("\\.cfi_startproc|\\.type\\s+32;");
 
     private static final String EMPTY_ASSEMBLY_NOTICE =
             "어셈블리에 함수가 없습니다. fn main이 없는 코드는 라이브러리로 컴파일하는데, rustc는 라이브러리에서 쓰이지 않는 "
