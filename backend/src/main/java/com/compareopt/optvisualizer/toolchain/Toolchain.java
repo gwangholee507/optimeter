@@ -25,12 +25,37 @@ public interface Toolchain {
      */
     Optional<String> versionMismatch(String versionOutput);
 
-    /** 어셈블리 파일을 만드는 인자. */
-    List<String> assemblyArgs(OptLevel level, String sourceFile, String outputFile);
+    /**
+     * 이 소스 코드를 컴파일할 때 쓸 Toolchain을 돌려준다.
+     * 코드 모양에 따라 명령줄이 달라지는 계열만 재정의한다 (예: rustc는 main 유무로 크레이트 종류가 갈린다).
+     */
+    default Toolchain forSource(String sourceCode) {
+        return this;
+    }
 
-    /** 크기 비교용 오브젝트 파일을 만드는 인자. main() 같은 진입점이 없는 코드에서도 성공해야 한다. */
-    List<String> objectArgs(OptLevel level, String sourceFile, String outputFile);
+    /**
+     * 어셈블리 파일과 크기 비교용 오브젝트 파일을 만드는 명령들의 인자. 앞에서부터 차례로 실행한다.
+     *
+     * 첫 번째 명령이 어셈블리를 만들고, 이 명령이 실패하면 그 레벨은 컴파일 실패가 된다.
+     * 한 번의 실행으로 둘 다 만들 수 있는 컴파일러는 명령을 하나만 돌려준다.
+     * main() 같은 진입점이 없는 코드에서도 성공해야 한다.
+     */
+    List<List<String>> codegenCommands(OptLevel level, String sourceFile, String asmFile, String objFile);
 
     /** 실행 시간 측정용 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 된다 (실행 측정만 건너뜀). */
     List<String> executableArgs(OptLevel level, String sourceFile, String outputFile);
+
+    /**
+     * 프로그램의 종료 코드를 보고 실행 시간을 믿을 수 없으면 그 이유를 돌려준다.
+     * 기본은 종료 코드를 따지지 않는다. C는 계산 결과를 main의 반환값으로 쓰는 코드가 흔해서
+     * 0이 아니어도 정상 실행일 수 있기 때문이다.
+     */
+    default Optional<String> executionFailure(int exitCode) {
+        return Optional.empty();
+    }
+
+    /** 컴파일은 성공했지만 결과를 볼 때 알아야 할 내용이 있으면 돌려준다 (화면의 열에 안내 문구로 표시된다). */
+    default Optional<String> assemblyNotice(String assembly) {
+        return Optional.empty();
+    }
 }

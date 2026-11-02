@@ -2,6 +2,8 @@ package com.compareopt.optvisualizer.toolchain;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -29,12 +31,20 @@ class GccStyleToolchainTest {
     void 어셈블리_오브젝트_실행파일_인자를_GCC식으로_만든다() {
         OptLevel o2 = clang.levels().get(2);
 
-        assertThat(clang.assemblyArgs(o2, "input.c", "out-O2.s"))
-                .containsExactly("-S", "-O2", "input.c", "-o", "out-O2.s");
-        assertThat(clang.objectArgs(o2, "input.c", "out-O2.o"))
-                .containsExactly("-c", "-O2", "input.c", "-o", "out-O2.o");
+        // 첫 번째 명령이 어셈블리, 두 번째 명령이 오브젝트 파일을 만든다
+        assertThat(clang.codegenCommands(o2, "input.c", "out-O2.s", "out-O2.o")).containsExactly(
+                List.of("-S", "-O2", "input.c", "-o", "out-O2.s"),
+                List.of("-c", "-O2", "input.c", "-o", "out-O2.o"));
         assertThat(clang.executableArgs(o2, "input.cpp", "out-O2.exe"))
                 .containsExactly("-O2", "input.cpp", "-o", "out-O2.exe");
+    }
+
+    @Test
+    void 코드_모양과_종료_코드를_따지지_않고_안내_문구도_없다() {
+        assertThat(clang.forSource("int main(void) { return 0; }")).isSameAs(clang);
+        // C는 계산 결과를 main의 반환값으로 쓰는 코드가 흔해서 0이 아닌 종료 코드도 정상 실행으로 본다
+        assertThat(clang.executionFailure(1)).isEmpty();
+        assertThat(clang.assemblyNotice("")).isEmpty();
     }
 
     @Test

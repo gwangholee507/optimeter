@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 선택된 컴파일러를 서브프로세스로 호출해 최적화 레벨별로
@@ -55,7 +56,8 @@ public class CompilerService {
 
     public List<OptimizationResult> compareOptimizationLevels(String sourceCode, String compilerId, boolean runBenchmark) {
         CompilerRegistry.ResolvedCompiler compiler = compilerRegistry.resolve(compilerId);
-        List<OptLevel> levels = compiler.toolchain().levels();
+        Toolchain toolchain = compiler.toolchain().forSource(sourceCode);
+        List<OptLevel> levels = toolchain.levels();
 
         List<OptimizationResult> results = new ArrayList<>();
         Path workDir = null;
@@ -64,7 +66,7 @@ public class CompilerService {
             Files.writeString(workDir.resolve(compiler.language().sourceFileName()), sourceCode, StandardCharsets.UTF_8);
 
             for (OptLevel level : levels) {
-                OptimizationResult result = runOneLevel(workDir, level, compiler, runBenchmark);
+                OptimizationResult result = runOneLevel(workDir, level, compiler, toolchain, runBenchmark);
                 result.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(result);
             }
@@ -81,16 +83,16 @@ public class CompilerService {
         return results;
     }
 
-    private OptimizationResult runOneLevel(Path workDir, OptLevel level,
-                                            CompilerRegistry.ResolvedCompiler compiler, boolean runBenchmark) {
+    private OptimizationResult runOneLevel(Path workDir, OptLevel level, CompilerRegistry.ResolvedCompiler compiler,
+                                            Toolchain toolchain, boolean runBenchmark) {
         long start = System.currentTimeMillis();
-        Toolchain toolchain = compiler.toolchain();
         String sourceName = compiler.language().sourceFileName();
         String asmName = "out-" + level.id() + ".s";
         String objName = "out-" + level.id() + ".o";
+        List<List<String>> commands = toolchain.codegenCommands(level, sourceName, asmName, objName);
 
         // 1) 어셈블리 생성 (예: {compiler} -S -O{n} input.c -o out.s)
-        ProcessResult asmResult = runCompiler(workDir, compiler, toolchain.assemblyArgs(level, sourceName, asmName));
+        ProcessResult asmResult = runCompiler(workDir, compiler, commands.get(0));
         long elapsed = System.currentTimeMillis() - start;
 
         if (!asmResult.succeeded()) {
@@ -99,7 +101,11 @@ public class CompilerService {
 
         // 2) 오브젝트 파일 생성 (크기 비교용, 예: {compiler} -c -O{n} input.c -o out.o)
         //    main() 유무와 무관하게 만들 수 있어야 하므로 링크하지 않는다.
-        ProcessResult objResult = runCompiler(workDir, compiler, toolchain.objectArgs(level, sourceName, objName));
+        //    rustc처럼 어셈블리와 한 번에 만드는 컴파일러는 남은 명령이 없다.
+        ProcessResult objResult = asmResult;
+        for (List<String> args : commands.subList(1, commands.size())) {
+            objResult = runCompiler(workDir, compiler, args);
+        }
 
         long binarySize = 0;
         Path objFile = workDir.resolve(objName);
@@ -122,9 +128,10 @@ public class CompilerService {
 
         long totalElapsed = System.currentTimeMillis() - start;
         OptimizationResult result = OptimizationResult.success(level, assembly, binarySize, totalElapsed);
+        toolchain.assemblyNotice(assembly).ifPresent(result::setNotice);
 
         if (runBenchmark) {
-            ExecutionOutcome outcome = benchmarkExecution(workDir, level, compiler);
+            ExecutionOutcome outcome = benchmarkExecution(workDir, level, compiler, toolchain);
             result.setExecutionResult(outcome.timeMs, outcome.error);
         }
 
@@ -136,14 +143,15 @@ public class CompilerService {
      * main()이 없는 코드는 링크에 실패하므로 이 경우 에러 메시지만 채우고 조용히 넘어간다
      * (컴파일 자체는 성공했으므로 전체 결과를 실패로 처리하지 않음).
      */
-    private ExecutionOutcome benchmarkExecution(Path workDir, OptLevel level, CompilerRegistry.ResolvedCompiler compiler) {
+    private ExecutionOutcome benchmarkExecution(Path workDir, OptLevel level,
+                                                 CompilerRegistry.ResolvedCompiler compiler, Toolchain toolchain) {
         // 확장자 .exe는 Windows에서 실행 파일로 인식되려면 필요하고, macOS/Linux에서는 있어도 무해하다.
         String exeName = "out-" + level.id() + ".exe";
         Path exeFile = workDir.resolve(exeName);
 
         String sourceName = compiler.language().sourceFileName();
         ProcessResult linkResult = runCompiler(
-                workDir, compiler, compiler.toolchain().executableArgs(level, sourceName, exeName));
+                workDir, compiler, toolchain.executableArgs(level, sourceName, exeName));
 
         if (!linkResult.succeeded() || !Files.exists(exeFile)) {
             return new ExecutionOutcome(null, linkFailureMessage(linkResult.output()));
@@ -157,6 +165,11 @@ public class CompilerService {
                         Duration.ofSeconds(EXECUTION_TIMEOUT_SECONDS));
                 if (run.timedOut()) {
                     return new ExecutionOutcome(null, "실행 시간 초과 (" + EXECUTION_TIMEOUT_SECONDS + "초)");
+                }
+                // 중간에 죽은 프로그램의 시간은 끝까지 돈 다른 레벨과 비교할 수 없다 (실제보다 훨씬 빠르게 보인다)
+                Optional<String> failure = toolchain.executionFailure(run.exitCode());
+                if (failure.isPresent()) {
+                    return new ExecutionOutcome(null, failure.get());
                 }
                 bestNanos = Math.min(bestNanos, run.elapsedNanos());
             }
