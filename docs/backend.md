@@ -34,10 +34,10 @@ CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 �
 
 ### `compile(CompileRequest request) : List<OptimizationResult>`
 - **경로**: `POST /api/compile`
-- **입력**: `{ "code": "...", "compiler": "clang"|"gcc"|"clangxx"|"gxx", "runBenchmark": true|false }`
+- **입력**: `{ "code": "...", "compiler": "clang"|"gcc"|"clangxx"|"gxx"|"rustc", "runBenchmark": true|false }`
   (`compiler` 기본값 `"clang"`, `runBenchmark` 기본값 `false`). 언어는 따로 받지 않고 컴파일러에 설정된 `language`로 정함
 - **동작**: `@Valid`로 `CompileRequest`를 검증한 뒤, `CompilerService.compareOptimizationLevels()`에 세 값을 그대로 위임
-- **출력**: 그 컴파일러의 toolchain이 정한 레벨(clang/gcc는 O0~O3) 순서대로 결과를 담은 `OptimizationResult` 리스트 (JSON 배열)
+- **출력**: 그 컴파일러의 toolchain이 정한 레벨(clang/gcc는 O0~O3, rustc는 0~3, s, z) 순서대로 결과를 담은 `OptimizationResult` 리스트 (JSON 배열)
 - 검증 실패(코드가 비어있거나 20,000자 초과) 시 Spring이 자동으로 400 Bad Request를 반환하고,
   `GlobalExceptionHandler`가 그 예외를 가로채 `{ message: "..." }` 형태로 응답을 정리함
 - 존재하지 않거나 서버에 설치되지 않은 `compiler` id를 보내면 `CompilerRegistry.resolve()`가
@@ -62,8 +62,10 @@ toolchain이 정한 버전 확인 명령(지금은 모두 `{candidate} --version
   그 OS에서만 `candidates` 뒤에 이어서 시도합니다. `Option.candidatesFor(HostOs)`가 이 순서대로 합쳐서
   돌려주며, 빈 값은 건너뜁니다.
   - 후보에는 PATH에 있는 실행 파일 이름(`gcc-16`)과 절대 경로(`C:\msys64\ucrt64\bin\gcc.exe`)를 모두 쓸 수 있습니다.
-  - `candidates` 맨 앞의 `${OPTVIS_CLANG:}` / `${OPTVIS_GCC:}` / `${OPTVIS_CLANGXX:}` / `${OPTVIS_GXX:}`는 환경 변수로 경로를 직접 지정하는 자리입니다.
-    환경 변수가 없으면 빈 값이 되어 건너뜁니다.
+  - `candidates` 맨 앞의 `${OPTVIS_CLANG:}` / `${OPTVIS_GCC:}` / `${OPTVIS_CLANGXX:}` / `${OPTVIS_GXX:}` / `${OPTVIS_RUSTC:}`는
+    환경 변수로 경로를 직접 지정하는 자리입니다. 환경 변수가 없으면 빈 값이 되어 건너뜁니다.
+  - rustc의 `os-candidates`에 있는 `${user.home}`은 서버를 띄운 사용자의 홈 디렉터리로 바뀝니다. rustup은 셸 설정 파일로
+    `~/.cargo/bin`을 PATH에 넣기 때문에, 셸을 거치지 않고 서버를 띄우면 PATH에 없을 수 있어서 기본 위치를 후보로 둡니다.
 - `toolDirOf(executable)` / `ResolvedCompiler.toolDir()`: 절대 경로로 찾은 컴파일러면 그 실행 파일이 들어 있는
   디렉터리를 돌려줍니다 (PATH의 이름으로 찾았으면 `null`). 이 디렉터리는 컴파일러와, 그 컴파일러로 만든
   프로그램을 실행할 때 자식 프로세스의 PATH 맨 앞에 추가됩니다. Windows의 MinGW/MSYS2 GCC는 `gcc.exe`가
@@ -85,25 +87,28 @@ toolchain이 정한 버전 확인 명령(지금은 모두 `{candidate} --version
 
 이 프로젝트의 핵심 로직. 선택된 컴파일러를 서브프로세스로 호출해서 실제 컴파일(및 옵트인 시 실행)을 수행합니다.
 언어·컴파일러마다 달라지는 소스 파일 이름, 레벨 목록, 컴파일러 인자는 직접 정하지 않고
-`ResolvedCompiler`가 들고 있는 `Language`와 `Toolchain`에서 받아 씁니다. 아래 명령 예시는 지금 등록된
-clang/gcc(`GccStyleToolchain`) 기준입니다.
+`ResolvedCompiler`가 들고 있는 `Language`와 `Toolchain`에서 받아 씁니다. 아래 명령 예시는
+clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain`](#rustctoolchain)에 있습니다.
 
 ### `compareOptimizationLevels(String sourceCode, String compilerId, boolean runBenchmark) : List<OptimizationResult>`
 전체 흐름을 총괄하는 메서드.
-1. `CompilerRegistry.resolve(compilerId)`로 사용할 컴파일러의 실제 경로, 언어, toolchain을 얻음 (실패 시 예외)
+1. `CompilerRegistry.resolve(compilerId)`로 사용할 컴파일러의 실제 경로, 언어, toolchain을 얻고,
+   `Toolchain.forSource(sourceCode)`로 이 코드에 맞는 toolchain을 고름 (실패 시 예외)
 2. `Files.createTempDirectory()`로 임시 작업 디렉터리 생성
-3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`, C++은 `input.cpp`)으로 저장
+3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`, C++은 `input.cpp`, Rust는 `input.rs`)으로 저장
 4. `Toolchain.levels()`(clang/gcc는 `O0`~`O3`의 `OptLevel`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록
 5. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
 6. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
 
 ### `runOneLevel(...) : OptimizationResult` (private)
 특정 최적화 레벨 하나에 대한 컴파일(및 옵트인 시 실행 벤치마크)을 수행.
-1. `Toolchain.assemblyArgs()`로 어셈블리 생성 (`{compiler} -S -O{level} input.c -o out.s`)
+1. `Toolchain.codegenCommands()`의 첫 번째 명령으로 어셈블리 생성 (`{compiler} -S -O{level} input.c -o out.s`)
    - 실패 시 컴파일러 출력을 그대로 담아 `OptimizationResult.failure()` 반환
-2. `Toolchain.objectArgs()`로 오브젝트 파일 생성 (`{compiler} -c -O{level} input.c -o out.o`, 크기 비교용, `main()` 없어도 동작)
+2. 남은 명령으로 오브젝트 파일 생성 (`{compiler} -c -O{level} input.c -o out.o`, 크기 비교용, `main()` 없어도 동작).
+   rustc는 첫 번째 명령이 둘 다 만들어서 남은 명령이 없음
 3. 오브젝트 파일 크기(`Files.size()`)를 읽고, 실패해도 무시(0으로 처리)하고 계속 진행
-4. 어셈블리 파일 내용을 문자열로 읽어서(줄바꿈은 `\n`으로 통일) `OptimizationResult.success()` 생성
+4. 어셈블리 파일 내용을 문자열로 읽어서(줄바꿈은 `\n`으로 통일) `OptimizationResult.success()` 생성하고,
+   `Toolchain.assemblyNotice()`가 돌려준 안내 문구가 있으면 `notice`에 붙임
 5. `runBenchmark=true`면 `benchmarkExecution()`을 호출해 실행 시간을 결과에 붙임
 
 ### `benchmarkExecution(...) : ExecutionOutcome` (private)
@@ -114,6 +119,8 @@ clang/gcc(`GccStyleToolchain`) 기준입니다.
   - `linkFailureMessage()`가 안내 문구 뒤에 링커의 원본 출력(최대 1,000자)을 붙여줌. 링커가 없는 환경
     (예: Windows에 LLVM만 설치한 경우)에서 원인을 알 수 있게 하기 위함
 - 한 번이라도 `EXECUTION_TIMEOUT_SECONDS`(5초) 안에 끝나지 않으면 즉시 타임아웃 에러로 처리
+- `Toolchain.executionFailure(exitCode)`가 이유를 돌려주면 실행 시간을 버리고 `executionError`에 그 이유를 담음.
+  도중에 죽은 프로그램의 시간은 끝까지 돈 레벨과 비교할 수 없기 때문입니다 (Rust는 레벨 0에서만 오버플로로 패닉이 날 수 있음)
 - 실행 파일 이름은 OS와 무관하게 `out-O{n}.exe` (Windows는 확장자가 필요하고, 다른 OS는 있어도 무해)
 
 ### `runCompiler(Path workDir, ResolvedCompiler compiler, List<String> args) : ProcessResult` (private)
@@ -137,26 +144,28 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 [`toolchain/OptLevel.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/OptLevel.java),
 [`toolchain/ToolchainKind.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/ToolchainKind.java),
 [`toolchain/Toolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/Toolchain.java),
-[`toolchain/GccStyleToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/GccStyleToolchain.java)
+[`toolchain/GccStyleToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/GccStyleToolchain.java),
+[`toolchain/RustcToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/RustcToolchain.java)
 
 `platform` 패키지가 OS 차이를 모아두듯, 이 패키지는 언어와 컴파일러 계열의 차이를 모아둡니다.
 `CompilerService`에는 `if (gcc)`나 `if (rust)` 같은 분기를 두지 않고, 새 언어/컴파일러는 이 패키지에 추가합니다.
 
 ### `Language` (enum)
-`application.yml`의 `language` 값 (`C`, `CPP`). 언어마다 세 가지만 정합니다.
-- `id()`: API 응답과 화면에서 쓰는 식별자 (`"c"`, `"cpp"`)
-- `label()`: 화면의 언어 목록에 보여줄 이름 (`"C"`, `"C++"`)
-- `sourceFileName()`: 임시 디렉터리에 저장할 파일 이름 (`input.c`, `input.cpp`). 컴파일러가 확장자로 언어를 판단하기 때문에 언어마다 다릅니다.
+`application.yml`의 `language` 값 (`C`, `CPP`, `RUST`). 언어마다 세 가지만 정합니다.
+- `id()`: API 응답과 화면에서 쓰는 식별자 (`"c"`, `"cpp"`, `"rust"`)
+- `label()`: 화면의 언어 목록에 보여줄 이름 (`"C"`, `"C++"`, `"Rust"`)
+- `sourceFileName()`: 임시 디렉터리에 저장할 파일 이름 (`input.c`, `input.cpp`, `input.rs`). 컴파일러가 확장자로 언어를 판단하기 때문에 언어마다 다릅니다.
 
 ### `OptLevel` (record)
 `(id, label, description)` — 비교할 최적화 레벨 하나. `id`는 컴파일러 인자와 출력 파일 이름에(`O2` → `-O2`, `out-O2.s`),
 `label`은 화면의 열 제목에(`-O2`), `description`은 열 제목 옆 ⓘ 툴팁에 쓰입니다. 화면은 이 값을 응답에서 그대로
-가져다 쓰므로, 레벨이 다른 언어(예: Rust의 `opt-level`)를 추가해도 프론트엔드를 고칠 필요가 없습니다.
+가져다 쓰므로, 레벨이 다른 언어(Rust의 `opt-level=2`처럼)를 추가해도 프론트엔드를 고칠 필요가 없습니다.
 
 ### `ToolchainKind` (enum)
 `application.yml`의 `toolchain` 값. 각 값은 `toolchain()`으로 실제 `Toolchain` 구현을 돌려줍니다.
 - `CLANG`: `GccStyleToolchain`, 버전 출력 확인 없음
 - `GCC`: `GccStyleToolchain`, 버전 출력에 `clang`이 보이면 거부 (macOS의 clang 별칭 `gcc`를 걸러냄)
+- `RUSTC`: `RustcToolchain`
 
 실행 파일 이름은 정하지 않으므로, 같은 계열이라도 언어에 따라 다른 실행 파일(예: `clang` / `clang++`)을
 `candidates`에 적어주면 됩니다.
@@ -167,13 +176,47 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 - `levels()`: 비교할 최적화 레벨(`OptLevel`) 목록. 결과도 이 순서로 만들어지고, 화면은 첫 번째 레벨을 비교 기준으로 삼음
 - `versionArgs()` / `versionMismatch(output)`: 설치 확인에 쓸 인자와, 그 출력이 이 계열의 컴파일러가 맞는지 판정
   (맞으면 empty, 아니면 건너뛰는 이유 — 시작 로그에 남음)
-- `assemblyArgs()` / `objectArgs()` / `executableArgs()`: 어셈블리, 오브젝트 파일(진입점 없어도 성공해야 함),
-  실행 파일(진입점 없으면 실패해도 됨 — 실행 측정만 건너뜀)을 만드는 인자
+- `forSource(sourceCode)`: 이 코드를 컴파일할 때 쓸 Toolchain. 기본은 자기 자신이고, 코드 모양에 따라 명령줄이 달라지는 계열만 재정의
+- `codegenCommands()`: 어셈블리와 오브젝트 파일을 만드는 명령들의 인자. 진입점이 없어도 성공해야 함.
+  첫 번째 명령이 어셈블리를 만들고, 실패하면 컴파일 실패가 됨. 한 번에 둘 다 만드는 컴파일러는 명령을 하나만 돌려줌
+- `executableArgs()`: 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 됨 (실행 측정만 건너뜀)
+- `executionFailure(exitCode)`: 종료 코드를 보고 실행 시간을 믿을 수 없으면 이유를 돌려줌. 기본은 따지지 않음
+  (C는 계산 결과를 `main`의 반환값으로 쓰는 코드가 흔해서 0이 아니어도 정상 실행일 수 있음)
+- `assemblyNotice(assembly)`: 컴파일은 성공했지만 결과를 볼 때 알아야 할 내용이 있으면 돌려줌. 기본은 없음
 
 ### `GccStyleToolchain`
 clang과 GCC처럼 GCC식 명령줄(`-S`, `-c`, `-O2`)을 쓰는 컴파일러. C++의 clang++/g++도 같은 구현을 씁니다.
 레벨은 `O0`~`O3`이고, 각 레벨의 초보자용 설명(예전에는 프론트엔드에 있던 툴팁 문구)도 여기서 정합니다.
 `ToolchainKind`를 통해서만 만들어지도록 패키지 밖에는 공개하지 않습니다.
+
+### `RustcToolchain`
+cargo 없이 rustc를 직접 부르는 구현. 단일 파일과 표준 라이브러리만 쓸 수 있습니다. 레벨은 `0`~`3`, `s`, `z`입니다.
+
+GCC식 컴파일러와 달리 크레이트 종류에 따라 결과가 크게 달라서, `forSource()`가 주석을 지운 코드에서 `fn main`을 찾아 종류를 고릅니다.
+문법을 해석하지 않으므로 틀릴 수 있지만, 잘못 찾으면 rustc가 E0601로 알려주고 놓치면 어셈블리가 비어 안내 문구가 나옵니다.
+
+| 코드 | 명령 | 이유 |
+|---|---|---|
+| `fn main` 없음 | `--crate-type=lib -C incremental=incr-{n} --emit=asm=out.s,obj=out.o` | 프로그램으로 컴파일하면 E0601 에러. 라이브러리에서는 `pub` 함수만 남음 |
+| `fn main` 있음 | `--crate-type=bin --emit=asm=out.s,obj=out.o` | 라이브러리로 컴파일하면 `main`이 쓰이지 않는 비공개 함수가 되어 어셈블리가 통째로 빔 |
+| 실행 파일 | `-o out.exe` (코드와 무관하게 항상 프로그램) | `main`이 없으면 실패하고 실행 측정만 건너뜀 |
+
+모든 명령의 앞에는 `--edition=2021 -C symbol-mangling-version=v0 -C codegen-units=1 -C opt-level={n}`이 붙습니다.
+
+- `--edition=2021`: 지정하지 않으면 2015로 컴파일됩니다. 2024는 붙여 넣는 코드에 흔한 `#[no_mangle]`을 에러로 처리하고,
+  2021은 배포판 패키지의 오래된 rustc에서도 동작합니다.
+- `symbol-mangling-version=v0`: 기본값이 rustc 버전마다 달라서 고정합니다. `legacy`는 안정판에서 지정할 수 없습니다.
+- `codegen-units=1`: 실행 시간을 재는 프로그램도 화면에 보여주는 어셈블리와 같은 방식으로 만듭니다.
+- `-C incremental`: 증분 빌드가 목적이 아닙니다. rustc는 작은 `pub fn`을 쓰는 쪽 크레이트에서 인라인하려고 미뤄서 레벨 1부터
+  어셈블리에서 지워버리는데, 증분 빌드에서는 이 판단을 하지 않습니다. 공식 동작이 아니라서 `CompilerServiceTest`가 실제 rustc로
+  이 효과를 확인합니다. 실행 파일에는 쓰지 않습니다.
+- 비공개 함수까지 보여주는 `-C link-dead-code`는 쓰지 않습니다. 인라인되고 남은 제네릭 함수까지 전부 남아서 `pub` 함수와 반복자로 쓴
+  예제 기준으로 `opt-level=2`의 어셈블리가 34줄에서 183줄로, 오브젝트 파일이 696B에서 3,264B로 늘어나 비교가 왜곡됩니다.
+  대신 함수가 하나도 없으면 `assemblyNotice()`가 `pub fn`을 안내합니다 (`.cfi_startproc`, Windows는 `.seh_proc`이 없는 어셈블리).
+- 어셈블리와 오브젝트 파일을 한 번의 실행으로 만듭니다. 따로 실행할 때보다 40%쯤 빠르고(`HashMap`을 쓰는 17줄 프로그램의 6개 레벨 기준
+  3.96초에서 2.42초로), 어셈블리와 크기가 같은 컴파일의 결과가 됩니다.
+- 레벨 0에서만 오버플로 검사가 켜져 있어서(`cargo build`, `cargo build --release`와 같은 동작) 같은 코드가 레벨 0에서만 패닉으로
+  바로 끝날 수 있습니다. 그대로 재면 레벨 0이 가장 빠르게 보이므로 `executionFailure()`가 0이 아닌 종료 코드를 실패로 처리합니다.
 
 ---
 

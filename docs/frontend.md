@@ -5,9 +5,9 @@
 
 외부 라이브러리 없이 직접 구현한 줄 단위 diff 유틸리티.
 
-### `diffLines(base, target) : { lineStates, addedCount, removedCount }`
+### `diffLines(base, target) : { lineStates, addedCount, removedCount } | null`
 - **입력**: `base`(기준이 되는 줄 배열, 보통 O0 어셈블리), `target`(비교 대상 줄 배열)
-- **알고리즘**: LCS(최장 공통 부분 수열)를 DP 테이블(`dp[i][j]`)로 계산한 뒤, 뒤에서부터 되짚어가며(backtrack)
+- **알고리즘**: 앞뒤의 같은 줄을 덜어내고 남은 줄을 정수로 바꾼 뒤, LCS(최장 공통 부분 수열)를 DP 테이블(`Uint16Array`)로 계산하고 되짚어가며(backtrack)
   - `base[i] === target[j]`면 `'same'`
   - 아니고 `base`에서 삭제하는 게 유리하면(`dp[i+1][j] >= dp[i][j+1]`) `removedCount` 증가
   - 그 외에는 `target`에 새로 추가된 줄이므로 `'added'`
@@ -15,7 +15,9 @@
   - `lineStates`: `target`의 각 줄에 대응하는 `'same' | 'added'` 배열 (인덱스가 `target` 줄 번호와 1:1 대응)
   - `addedCount`: `target`에만 있는(새로 생기거나 바뀐) 줄 수
   - `removedCount`: `base`에만 있고 `target`에는 없는(사라진) 줄 수
-- **복잡도**: O(n·m) — 어셈블리가 보통 수백 줄 이내라 브라우저에서도 충분히 빠름
+  - 덜어낸 뒤의 표가 `MAX_DIFF_CELLS`(1억 5천만 칸, 약 300MB)를 넘으면 `null`
+- **복잡도**: O(n·m). Rust는 짧은 프로그램도 `opt-level=0`에서 수만 줄이 나오므로 표를 줄 수의 곱에 맞춰 무한정 키울 수 없습니다.
+  `HashMap`을 쓰는 17줄 프로그램(16,767줄과 3,929줄 비교)은 한 쌍에 약 0.2초 걸립니다.
 
 ---
 
@@ -25,8 +27,9 @@
 언어 선택과 언어별 코드 초안을 다루는 순수 함수 모음. 화면 상태와 분리해서 `languages.test.js`로 테스트합니다.
 
 ### 상수
-- `SAMPLE_CODE`: 언어 id(`c`, `cpp`)별 예제 코드. 언어를 처음 고르거나 "예제로 되돌리기"를 누르면 들어갑니다.
-  표준 헤더를 쓰지 않는 예제만 둡니다 — Windows에 LLVM만 설치한 환경에서는 표준 헤더를 못 찾아 첫 화면부터 실패하기 때문
+- `SAMPLE_CODE`: 언어 id(`c`, `cpp`, `rust`)별 예제 코드. 언어를 처음 고르거나 "예제로 되돌리기"를 누르면 들어갑니다.
+  C/C++은 표준 헤더를 쓰지 않는 예제만 둡니다 — Windows에 LLVM만 설치한 환경에서는 표준 헤더를 못 찾아 첫 화면부터 실패하기 때문.
+  Rust 예제는 `fn main` 없이 `pub fn`을 씁니다 — 라이브러리로 컴파일되어 `pub` 함수만 어셈블리에 남기 때문
 - `INITIAL_LANGUAGE`: 처음 보여줄 언어 (`'c'`)
 - `FALLBACK_COMPILERS`: `/api/compilers`를 받지 못했을 때 쓰는 목록. 서버의 기본 컴파일러인 Clang 하나만 둡니다
 
@@ -72,19 +75,22 @@
 - 1ms 미만이면 마이크로초로 바꿔 `"420µs"`처럼 표시 (짧은 함수는 실행 시간이 1ms를 안 넘는 경우가 많아서)
 - 그 이상이면 `"3.42ms"`처럼 소수점 2자리 ms로 표시
 
-### `AssemblyView({ assembly, baseAssembly })` (컴포넌트)
-어셈블리 텍스트를 줄 단위 `<div>`로 쪼개서 렌더링.
-- `baseAssembly`가 없으면(= 기준 레벨 자신이거나 기준 레벨이 컴파일에 실패한 경우) 그냥 평문으로 표시
-- `baseAssembly`가 있으면 `diffLines()`로 각 줄이 `'added'`인지 계산해서, 새로 생긴/바뀐 줄에
-  `diff-added` CSS 클래스를 붙여 초록색으로 강조
+### `AssemblyView({ assembly, lineStates })` (컴포넌트)
+어셈블리 텍스트를 줄 단위 `<div>`로 쪼개서 렌더링. `lineStates`는 `diffLines()`가 돌려준 줄별 상태입니다.
+- `lineStates`가 없으면(= 기준 레벨 자신이거나, 기준 레벨이 컴파일에 실패했거나, 비교를 건너뛴 경우) 그냥 평문으로 표시
+- 있으면 `'added'`인 줄에 `diff-added` CSS 클래스를 붙여 초록색으로 강조
 
 ### `OptimizationColumn({ result, base })` (컴포넌트)
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과(응답의 첫 번째 레벨)입니다.
+`memo`로 감싸고 `diffLines()`도 `useMemo`로 감쌌습니다. 에디터에 글자를 칠 때마다 `App`이 다시 그려지는데, 어셈블리가 수만 줄이면
+diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준이 바뀔 때만 다시 계산합니다.
 - 헤더에 `result.levelLabel`(예: `-O0`) + `InfoTooltip(result.levelDescription)`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
-- 기준 레벨이 아니고 기준과 자신 모두 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs {base.levelLabel})` 배지를 헤더에 추가
+- 기준 레벨이 아니고 기준과 자신 모두 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs {base.levelLabel})` 배지를 헤더에 추가.
+  `diffLines()`가 `null`을 돌려주면 대신 회색 "(줄이 너무 많아 비교 생략)"을 표시
 - `result.executionTimeMs`가 있으면(= `runBenchmark=true`였고 측정 성공) `⏱ 실행 {formatMs(...)}` 배지 추가
-- 측정을 시도했지만 실행 파일을 못 만들었으면(주로 `main()` 없음) `executionError`를 툴팁으로 붙인
+- 측정을 시도했지만 실패했으면(주로 `main()` 없음, Rust는 패닉으로 끝난 경우도 포함) `executionError`를 툴팁으로 붙인
   회색 "⏱ 실행 불가" 배지를 대신 표시 — 컴파일 자체는 성공이므로 에러로 취급하지 않음
+- `result.notice`가 있으면 어셈블리 위에 노란색 안내 문구를 표시 (예: Rust에서 어셈블리에 함수가 없는 이유)
 - 컴파일 실패 시 헤더에 빨간 "컴파일 실패" 배지를 띄우고, 본문에는
   `"⚠ {compilerLabel}가 이 코드를 컴파일하지 못했습니다"` 안내와 함께 `errorMessage`(정리된 컴파일러 stderr)를 표시
 
