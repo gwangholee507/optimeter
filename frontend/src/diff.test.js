@@ -97,6 +97,24 @@ describe('diffLines', () => {
     expect(removedCount).toBe(1)
   })
 
+  it('.file 지시어는 이름이 달라도 같은 줄로 본다', () => {
+    const base = ['\t.text', '\t.file\t"3j9vqzn1"', 'add:', '\tret']
+    const target = ['\t.text', '\t.file\t"8kf2xw7c"', 'add:', '\tret']
+
+    const { lineStates, addedCount, removedCount } = diffLines(base, target)
+
+    expect(lineStates).toEqual(['same', 'same', 'same', 'same'])
+    expect(addedCount).toBe(0)
+    expect(removedCount).toBe(0)
+  })
+
+  it('.file로 시작하지 않는 줄은 그대로 비교한다', () => {
+    const { addedCount, removedCount } = diffLines(['\t.filename a'], ['\t.filename b'])
+
+    expect(addedCount).toBe(1)
+    expect(removedCount).toBe(1)
+  })
+
   it('수만 줄짜리 어셈블리도 비교한다', () => {
     const base = Array.from({ length: 12_000 }, (_, i) => `base ${i}`)
     const target = Array.from({ length: 4_000 }, (_, i) => (i % 2 ? `base ${i * 3}` : `target ${i}`))

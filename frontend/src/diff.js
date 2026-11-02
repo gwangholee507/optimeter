@@ -2,6 +2,13 @@
 // Rust는 짧은 프로그램도 -O0에서 수만 줄이 나오므로 표를 무한정 키울 수 없다.
 export const MAX_DIFF_CELLS = 150_000_000
 
+// .file은 컴파일 단위의 이름이지 코드가 아니다. rustc는 -C incremental을 쓰면 이 이름이 레벨마다 달라진다.
+const FILE_DIRECTIVE = /^\s*\.file\s/
+
+function comparableLine(line) {
+  return FILE_DIRECTIVE.test(line) ? '.file' : line
+}
+
 /** 줄을 정수로 바꿔서, 표를 채울 때 문자열 대신 정수를 비교한다. */
 function internLines(base, target) {
   const ids = new Map()
@@ -23,7 +30,10 @@ function internLines(base, target) {
  *
  * O(n*m) DP라서 앞뒤의 같은 줄을 먼저 덜어내고, 그래도 표가 MAX_DIFF_CELLS를 넘으면 null을 돌려줍니다.
  */
-export function diffLines(base, target) {
+export function diffLines(baseLines, targetLines) {
+  const base = baseLines.map(comparableLine)
+  const target = targetLines.map(comparableLine)
+
   // 앞뒤의 같은 줄은 표에 넣지 않는다 (LCS 길이는 그대로다)
   const shorter = Math.min(base.length, target.length)
   let start = 0
