@@ -2,7 +2,7 @@
 
 사용자에게 배포하는 형태는 **프론트엔드까지 들어 있는 jar 파일 하나**입니다.
 버전 태그를 올리면 GitHub Actions([release.yml](../.github/workflows/release.yml))가 jar를 만들어
-[Releases](https://github.com/gwangholee507/compiler-opt-visualizer/releases) 페이지에 자동으로 올립니다.
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에 자동으로 올립니다.
 
 ## 릴리스 올리기
 

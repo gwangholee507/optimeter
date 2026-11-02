@@ -91,7 +91,7 @@ Windows에는 C 컴파일러가 기본으로 들어 있지 않아서 직접 설�
 
 **방법 1 — jar 파일 내려받아 실행 (가장 간단)**
 
-[Releases](https://github.com/gwangholee507/compiler-opt-visualizer/releases) 페이지에서 `optimeter-<버전>.jar`를 내려받고, 터미널에서 실행합니다.
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에서 `optimeter-<버전>.jar`를 내려받고, 터미널에서 실행합니다.
 ```bash
 java -jar optimeter-<버전>.jar
 ```
