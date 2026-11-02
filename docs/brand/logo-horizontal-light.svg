@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 456 90" width="456" height="90" role="img" aria-label="Optimeter">
+  <title>Optimeter</title>
+  <g transform="translate(-3 -5)">
+  <path d="M78.48 31.42A34 34 0 1 1 68.58 21.52" fill="none" stroke="#5057e6" stroke-width="14"/>
+  <rect x="33" y="32" width="34" height="6" rx="1.2" fill="#8a8ff0"/>
+  <rect x="33" y="42" width="25" height="6" rx="1.2" fill="#5057e6"/>
+  <rect x="33" y="52" width="17" height="6" rx="1.2" fill="#1b97ab"/>
+  <rect x="33" y="62" width="8" height="6" rx="1.2" fill="#1f9d55"/>
+  </g>
+  <g transform="translate(113 5)" fill="none" stroke-width="8">
+    <g stroke="#5057e6"><circle cx="20" cy="40" r="16.6"/><path d="M50 20V78"/><circle cx="66" cy="40" r="16.6"/><path d="M102 6V60M93 24H111"/><path d="M122 20V60"/><circle cx="122" cy="10" r="2.5" stroke-width="5"/></g>
+    <g stroke="#15161f"><path d="M139 20V60M139 34.9a11.5 11.5 0 0 1 23 0V60M162 34.9a11.5 11.5 0 0 1 23 0V60"/><path d="M199.4 40H232.6A16.6 16.6 0 1 0 229.08 50.22"/><path d="M252 6V60M243 24H261"/><path d="M271.4 40H304.6A16.6 16.6 0 1 0 301.08 50.22"/><path d="M319 20V60M319 38a15 14 0 0 1 15 -14"/></g>
+  </g>
+</svg>

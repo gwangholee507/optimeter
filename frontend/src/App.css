@@ -9,9 +9,13 @@
   text-align: left;
 }
 
-header h1 {
-  font-size: 1.75rem;
-  margin-bottom: 0.25rem;
+.logo {
+  margin: 0 0 0.5rem;
+}
+
+.logo img {
+  display: block;
+  height: 2.25rem;
 }
 
 .subtitle {
