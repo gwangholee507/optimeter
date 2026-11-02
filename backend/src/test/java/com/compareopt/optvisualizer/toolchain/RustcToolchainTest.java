@@ -75,6 +75,23 @@ class RustcToolchainTest {
     }
 
     @Test
+    void fn_main을_잘못_찾아_E0601이_나면_라이브러리로_바로잡는다() {
+        String error = "error[E0601]: `main` function not found in crate `input`";
+        String code = "pub struct A;\nimpl A { pub fn main(&self) {} }";
+
+        Toolchain wrong = rustc.forSource(code);
+        assertThat(wrong.correctedBy(error)).hasValueSatisfying(corrected -> assertThat(
+                corrected.codegenCommands(rustc.levels().get(0), "input.rs", "out-0.s", "out-0.o").get(0))
+                .contains("--crate-type=lib"));
+    }
+
+    @Test
+    void E0601이_아닌_에러나_이미_라이브러리인_코드는_바로잡지_않는다() {
+        assertThat(rustc.forSource(PROGRAM).correctedBy("error[E0308]: mismatched types")).isEmpty();
+        assertThat(rustc.forSource(LIBRARY).correctedBy("error[E0601]: `main` function not found")).isEmpty();
+    }
+
+    @Test
     void 실행_파일은_코드와_상관없이_같은_방식으로_만든다() {
         OptLevel level2 = rustc.levels().get(2);
         List<String> expected = List.of(
@@ -103,7 +120,8 @@ class RustcToolchainTest {
         // 아무것도 남지 않았을 때 macOS에서 실제로 나오는 어셈블리
         String empty = "\t.build_version macos, 11, 0\n\n.subsections_via_symbols\n";
 
-        assertThat(rustc.assemblyNotice(empty)).hasValueSatisfying(notice -> assertThat(notice).contains("pub fn"));
+        assertThat(rustc.assemblyNotice(empty)).hasValueSatisfying(
+                notice -> assertThat(notice).contains("pub fn", "제네릭", "#[inline]"));
         assertThat(rustc.assemblyNotice("add:\n\t.cfi_startproc\n\tret\n\t.cfi_endproc\n")).isEmpty();
     }
 

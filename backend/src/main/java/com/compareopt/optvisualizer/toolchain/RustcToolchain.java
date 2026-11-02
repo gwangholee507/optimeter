@@ -41,11 +41,12 @@ final class RustcToolchain implements Toolchain {
     // 함수가 있으면 나오는 지시어. Windows(COFF)의 작은 함수에는 .cfi_startproc도 .seh_proc도 없어서
     // 함수 심볼에 항상 붙는 .type 32;로 찾는다.
     private static final Pattern FUNCTION_DIRECTIVE = Pattern.compile("\\.cfi_startproc|\\.type\\s+32;");
+    private static final String NO_MAIN_ERROR = "[E0601]";
 
     private static final String EMPTY_ASSEMBLY_NOTICE =
             "어셈블리에 함수가 없습니다. fn main이 없는 코드는 라이브러리로 컴파일하는데, rustc는 라이브러리에서 쓰이지 않는 "
-                    + "비공개 함수와 어떤 타입으로도 쓰이지 않은 제네릭 함수를 만들지 않습니다. "
-                    + "함수를 pub fn으로 바꾸거나 fn main에서 호출해 보세요.";
+                    + "비공개 함수, 어떤 타입으로도 쓰이지 않은 제네릭 함수, #[inline]이 붙은 함수를 만들지 않습니다. "
+                    + "fn main에서 호출하거나, 비공개 함수는 pub fn으로 바꾸고 #[inline]은 지워 보세요.";
 
     private final boolean program;
 
@@ -80,9 +81,18 @@ final class RustcToolchain implements Toolchain {
         return new RustcToolchain(hasMainFunction(sourceCode));
     }
 
+    /** 메서드나 문자열, 모듈 안의 fn main을 프로그램의 진입점으로 잘못 찾으면 rustc가 E0601을 내므로 라이브러리로 다시 컴파일한다. */
+    @Override
+    public Optional<Toolchain> correctedBy(String compilerOutput) {
+        if (program && compilerOutput.contains(NO_MAIN_ERROR)) {
+            return Optional.of(new RustcToolchain(false));
+        }
+        return Optional.empty();
+    }
+
     /**
      * 주석을 지운 코드에서 fn main을 찾는다. 문법을 해석하지 않으므로 틀릴 수 있지만 결과는 안전하다:
-     * 모듈 안의 fn main처럼 잘못 찾으면 rustc가 E0601로 알려주고, 놓치면 어셈블리가 비어서 안내 문구가 나온다.
+     * 잘못 찾으면 correctedBy가 바로잡고, 매크로가 만드는 main처럼 놓치면 어셈블리가 비어서 안내 문구가 나온다.
      */
     private static boolean hasMainFunction(String sourceCode) {
         return MAIN_FUNCTION.matcher(COMMENT.matcher(sourceCode).replaceAll(" ")).find();

@@ -407,6 +407,55 @@ class CompilerServiceTest {
         });
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "pub struct A;\nimpl A { pub fn main(&self) -> i32 { 1 } }\npub fn keep() -> i32 { A.main() }",
+            "pub const S: &str = \"fn main()\";\npub fn keep() -> &'static str { S }",
+            "mod m { pub fn main() {} }\npub fn keep() { m::main() }",
+    })
+    void 진입점이_아닌_fn_main이_있는_Rust_코드는_라이브러리로_컴파일된다(String code) {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", true);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getAssembly()).contains("keep");
+            // 실행 파일은 진입점이 없어서 만들 수 없다
+            assertThat(r.getExecutionError()).contains("E0601");
+        });
+    }
+
+    @Test
+    void 진입점이_아닌_fn_main이_있는_Rust_코드의_에러에는_E0601이_섞이지_않는다() {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = "pub struct A;\nimpl A { pub fn main(&self) -> i32 { \"x\" } }";
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", false);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).isFalse();
+            assertThat(r.getErrorMessage()).contains("E0308").doesNotContain("E0601");
+        });
+    }
+
+    @Test
+    void 표준_입력을_읽는_Rust_프로그램도_실행_시간이_측정된다() {
+        RequiredCompilers.assumeAvailable(registry, "rustc");
+        String code = """
+                fn main() {
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line).unwrap();
+                    println!("{}", line.len());
+                }
+                """;
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "rustc", true);
+
+        assertThat(results).allSatisfy(
+                r -> assertThat(r.getExecutionTimeMs()).as(r.getExecutionError()).isNotNull());
+    }
+
     @Test
     void Rust_컴파일_에러는_input_rs_파일_이름으로_표시된다() {
         RequiredCompilers.assumeAvailable(registry, "rustc");

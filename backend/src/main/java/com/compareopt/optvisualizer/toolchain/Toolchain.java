@@ -34,6 +34,14 @@ public interface Toolchain {
     }
 
     /**
+     * 컴파일 실패 출력을 보고 forSource의 선택이 틀렸으면 다시 컴파일할 Toolchain을 돌려준다.
+     * forSource는 코드 모양만 보고 고르므로, 컴파일러의 에러로 바로잡을 수 있는 계열만 재정의한다.
+     */
+    default Optional<Toolchain> correctedBy(String compilerOutput) {
+        return Optional.empty();
+    }
+
+    /**
      * 어셈블리 파일과 크기 비교용 오브젝트 파일을 만드는 명령들의 인자. 앞에서부터 차례로 실행한다.
      *
      * 첫 번째 명령이 어셈블리를 만들고, 이 명령이 실패하면 그 레벨은 컴파일 실패가 된다.

@@ -39,7 +39,8 @@ import java.util.Optional;
 public class CompilerService {
 
     private static final Logger log = LoggerFactory.getLogger(CompilerService.class);
-    private static final long COMPILE_TIMEOUT_SECONDS = 10;
+    // 새로 켠 컴퓨터의 첫 컴파일은 컴파일러와 표준 라이브러리를 디스크에서 읽느라 짧은 코드도 10초를 넘길 수 있다.
+    private static final long COMPILE_TIMEOUT_SECONDS = 30;
     private static final long EXECUTION_TIMEOUT_SECONDS = 5;
     private static final int BENCHMARK_RUNS = 5;
     private static final int LINK_ERROR_DETAIL_MAX_CHARS = 1000;
@@ -67,6 +68,13 @@ public class CompilerService {
 
             for (OptLevel level : levels) {
                 OptimizationResult result = runOneLevel(workDir, level, compiler, toolchain, runBenchmark);
+                Optional<Toolchain> corrected = result.isSuccess()
+                        ? Optional.empty() : toolchain.correctedBy(result.getErrorMessage());
+                if (corrected.isPresent()) {
+                    // 남은 레벨도 바로잡은 명령줄로 컴파일한다
+                    toolchain = corrected.get();
+                    result = runOneLevel(workDir, level, compiler, toolchain, runBenchmark);
+                }
                 result.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(result);
             }

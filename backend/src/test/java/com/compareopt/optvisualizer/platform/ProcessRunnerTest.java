@@ -67,6 +67,23 @@ class ProcessRunnerTest {
     }
 
     @Test
+    void 표준_입력은_바로_닫혀서_입력을_읽는_프로그램이_기다리지_않는다(@TempDir Path workDir) throws Exception {
+        Path source = workDir.resolve("ReadStdin.java");
+        Files.writeString(source, """
+                class ReadStdin {
+                    public static void main(String[] args) throws Exception {
+                        System.exit(System.in.read() == -1 ? 0 : 1);
+                    }
+                }
+                """);
+
+        ProcessResult result = runner.runDiscardingOutput(List.of(JAVA, source.toString()), workDir, null, TIMEOUT);
+
+        assertThat(result.timedOut()).isFalse();
+        assertThat(result.succeeded()).isTrue();
+    }
+
+    @Test
     void 없는_실행_파일은_IOException을_던진다() {
         assertThatThrownBy(() -> runner.run(List.of("no-such-compiler-executable"), null, null, TIMEOUT))
                 .isInstanceOf(IOException.class);
