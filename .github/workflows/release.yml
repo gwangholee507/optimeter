@@ -58,13 +58,13 @@ jobs:
         run: ./mvnw -B -Pbundle -Drevision=${{ steps.version.outputs.value }} package
 
       - name: Smoke test the jar
-        run: bash ../.github/scripts/smoke-test.sh target/compiler-opt-visualizer-${{ steps.version.outputs.value }}.jar
+        run: bash ../.github/scripts/smoke-test.sh target/optimeter-${{ steps.version.outputs.value }}.jar
 
       - name: Upload jar as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: compiler-opt-visualizer-${{ steps.version.outputs.value }}
-          path: backend/target/compiler-opt-visualizer-${{ steps.version.outputs.value }}.jar
+          name: optimeter-${{ steps.version.outputs.value }}
+          path: backend/target/optimeter-${{ steps.version.outputs.value }}.jar
           if-no-files-found: error
 
       - name: Create GitHub Release
@@ -73,6 +73,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            "target/compiler-opt-visualizer-${{ steps.version.outputs.value }}.jar" \
+            "target/optimeter-${{ steps.version.outputs.value }}.jar" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes

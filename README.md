@@ -1,6 +1,14 @@
-# 컴파일러 최적화 옵션 비교기
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-horizontal-dark.svg">
+    <img src="docs/brand/logo-horizontal-light.svg" alt="Optimeter" height="56">
+  </picture>
+</h1>
 
-[![CI](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml)
+[![CI](https://github.com/gwangholee507/optimeter/actions/workflows/ci.yml/badge.svg)](https://github.com/gwangholee507/optimeter/actions/workflows/ci.yml)
+
+**Optimeter**는 컴파일러 최적화 옵션 비교기입니다. 이름은 **opti**mization과 **meter**(측정기)를 합친 말로,
+최적화가 코드를 어떻게 바꾸는지 눈으로 보고 숫자로 잰다는 뜻입니다.
 
 C 또는 C++ 코드를 입력하면 **선택한 컴파일러**(Clang/GNU GCC, C++은 Clang++/GNU G++)의 최적화 레벨(`-O0`~`-O3`)을 각각 적용해서
 **어셈블리 코드가 어떻게 달라지는지, 컴파일된 코드 크기와 컴파일 시간, (옵션으로) 실제 실행 시간이
@@ -65,11 +73,11 @@ macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에�
 
 ### 방법 1 — jar 파일 내려받아 실행
 
-[Releases](https://github.com/gwangholee507/compiler-opt-visualizer/releases) 페이지에 올라온 `compiler-opt-visualizer-<버전>.jar`를 내려받아 실행합니다.
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에 올라온 `optimeter-<버전>.jar`를 내려받아 실행합니다.
 (올라온 릴리스가 없다면 방법 2를 사용하세요.)
 
 ```bash
-java -jar compiler-opt-visualizer-<버전>.jar
+java -jar optimeter-<버전>.jar
 ```
 
 브라우저에서 `http://localhost:8080`을 열면 됩니다. 끝낼 때는 터미널에서 `Ctrl+C`를 누릅니다.

@@ -295,7 +295,7 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 | 4 | `frontend/dist`를 `target/classes/static`으로 복사 → jar에 포함됨 | `maven-resources-plugin` |
 
 ```bash
-./mvnw -Pbundle package           # target/compiler-opt-visualizer-<버전>.jar 생성 → java -jar 로 실행
+./mvnw -Pbundle package           # target/optimeter-<버전>.jar 생성 → java -jar 로 실행
 ./mvnw -Pbundle spring-boot:run   # jar를 만들지 않고 소스에서 바로 실행
 ```
 

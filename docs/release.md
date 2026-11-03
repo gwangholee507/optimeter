@@ -2,7 +2,7 @@
 
 사용자에게 배포하는 형태는 **프론트엔드까지 들어 있는 jar 파일 하나**입니다.
 버전 태그를 올리면 GitHub Actions([release.yml](../.github/workflows/release.yml))가 jar를 만들어
-[Releases](https://github.com/gwangholee507/compiler-opt-visualizer/releases) 페이지에 자동으로 올립니다.
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에 자동으로 올립니다.
 
 ## 릴리스 올리기
 
@@ -16,7 +16,7 @@ git push origin v0.1.0
 ```
 
 - 태그는 `v1.2.3` 또는 `v1.2.3-rc.1` 형식이어야 합니다 (다른 형식이면 워크플로가 실패합니다).
-- 태그에서 `v`를 뗀 값이 버전이 됩니다. `v0.1.0` → `compiler-opt-visualizer-0.1.0.jar`
+- 태그에서 `v`를 뗀 값이 버전이 됩니다. `v0.1.0` → `optimeter-0.1.0.jar`
 - 버전 번호는 [유의적 버전](https://semver.org/lang/ko/)을 따릅니다: 호환되지 않는 변경은 앞자리,
   기능 추가는 가운데, 버그 수정은 끝자리를 올립니다.
 

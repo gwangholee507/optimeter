@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="Optimeter">
+  <title>Optimeter</title>
+  <rect width="100" height="100" rx="22" fill="#15161f"/>
+  <path d="M78.48 31.42A34 34 0 1 1 68.58 21.52" fill="none" stroke="#646cff" stroke-width="14"/>
+  <rect x="33" y="32" width="34" height="6" rx="1.2" fill="#7a7fe8"/>
+  <rect x="33" y="42" width="25" height="6" rx="1.2" fill="#646cff"/>
+  <rect x="33" y="52" width="17" height="6" rx="1.2" fill="#4fb6c7"/>
+  <rect x="33" y="62" width="8" height="6" rx="1.2" fill="#7ee787"/>
+</svg>

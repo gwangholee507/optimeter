@@ -125,7 +125,7 @@
 6. `finally`에서 `loading = false` (성공/실패 모두)
 
 #### 렌더링 흐름
-1. 상단에 제목/설명, 코드 에디터(`<textarea>`)
+1. 상단에 로고(`assets/logo-horizontal-dark.svg`)/설명, 코드 에디터(`<textarea>`)
 2. 컨트롤 줄
    - **언어** `<select>`: 사용 가능한 컴파일러가 없는 언어는 `disabled` + "(서버에 설치되지 않음)"
    - **컴파일러** `<select>`: 지금 언어의 컴파일러만 표시, 사용 불가능한 항목은 `disabled`

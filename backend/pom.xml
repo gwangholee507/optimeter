@@ -12,10 +12,10 @@
     </parent>
 
     <groupId>com.compareopt</groupId>
-    <artifactId>compiler-opt-visualizer</artifactId>
+    <artifactId>optimeter</artifactId>
     <!-- 릴리스 빌드는 -Drevision=1.2.3 으로 버전을 지정한다 (.github/workflows/release.yml) -->
     <version>${revision}</version>
-    <name>compiler-opt-visualizer</name>
+    <name>optimeter</name>
     <description>Compare C compiler optimization levels (-O0~-O3)</description>
 
     <properties>
@@ -68,7 +68,7 @@
         <!--
             프론트엔드까지 넣은 "실행 가능한 jar 하나"를 만드는 프로필.
 
-                ./mvnw -Pbundle package          → target/compiler-opt-visualizer-*.jar (java -jar 로 실행)
+                ./mvnw -Pbundle package          → target/optimeter-*.jar (java -jar 로 실행)
                 ./mvnw -Pbundle spring-boot:run  → 소스에서 바로 실행 (http://localhost:8080)
 
             ../frontend 를 빌드해서(dist) jar의 static/ 아래에 넣으면 Spring Boot가 화면과 API를
