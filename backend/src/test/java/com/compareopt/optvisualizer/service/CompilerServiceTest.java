@@ -2,6 +2,7 @@ package com.compareopt.optvisualizer.service;
 
 import com.compareopt.optvisualizer.config.CompilerProperties;
 import com.compareopt.optvisualizer.dto.OptimizationResult;
+import com.compareopt.optvisualizer.platform.ProcessResult;
 import com.compareopt.optvisualizer.platform.ProcessRunner;
 import com.compareopt.optvisualizer.toolchain.Language;
 import com.compareopt.optvisualizer.toolchain.ToolchainKind;
@@ -11,10 +12,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -405,6 +409,50 @@ class CompilerServiceTest {
             assertThat(r.getExecutionTimeMs()).isNull();
             assertThat(r.getExecutionError()).contains("실행 파일을 만들 수 없습니다");
         });
+    }
+
+    @Test
+    void 시간_초과된_레벨은_다른_레벨이_성공했으면_다시_컴파일한다() {
+        RequiredCompilers.assumeAvailable(registry, "clang");
+        AtomicInteger compilations = new AtomicInteger();
+        ProcessRunner firstCompileTimesOut = new ProcessRunner() {
+            @Override
+            public ProcessResult run(List<String> command, Path workDir, Path toolDir, Duration timeout)
+                    throws IOException, InterruptedException {
+                if (compilations.incrementAndGet() == 1) {
+                    return new ProcessResult(-1, "", true, 0);
+                }
+                return super.run(command, workDir, toolDir, timeout);
+            }
+        };
+        CompilerService service = new CompilerService(registry, firstCompileTimesOut);
+
+        List<OptimizationResult> results = service.compareOptimizationLevels("int add(int a, int b) { return a + b; }", "clang", false);
+
+        assertThat(results).extracting(OptimizationResult::getLevel).containsExactly("O0", "O1", "O2", "O3");
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getCompilerId()).isEqualTo("clang");
+        });
+    }
+
+    @Test
+    void 모든_레벨이_시간_초과면_다시_컴파일하지_않는다() {
+        RequiredCompilers.assumeAvailable(registry, "clang");
+        AtomicInteger compilations = new AtomicInteger();
+        ProcessRunner alwaysTimesOut = new ProcessRunner() {
+            @Override
+            public ProcessResult run(List<String> command, Path workDir, Path toolDir, Duration timeout) {
+                compilations.incrementAndGet();
+                return new ProcessResult(-1, "", true, 0);
+            }
+        };
+        CompilerService service = new CompilerService(registry, alwaysTimesOut);
+
+        List<OptimizationResult> results = service.compareOptimizationLevels("int add(void);", "clang", false);
+
+        assertThat(results).allSatisfy(r -> assertThat(r.getErrorMessage()).contains("시간 초과"));
+        assertThat(compilations).hasValue(4);
     }
 
     @ParameterizedTest

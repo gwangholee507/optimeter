@@ -98,8 +98,10 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
 3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`, C++은 `input.cpp`, Rust는 `input.rs`)으로 저장
 4. `Toolchain.levels()`(clang/gcc는 `O0`~`O3`의 `OptLevel`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록.
    실패했을 때 `Toolchain.correctedBy()`가 다른 toolchain을 돌려주면 그 레벨을 다시 컴파일하고 남은 레벨에도 그 toolchain을 씀
-5. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
-6. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
+5. `retryTimedOutLevels()`: 다른 레벨이 성공했으면 컴파일 시간 초과로 실패한 레벨을 한 번 더 컴파일. 첫 컴파일은 디스크를 읽느라 제한 시간을 넘길 수 있지만
+   읽은 내용이 OS 캐시에 남아서 다시 하면 금방 끝나기 때문. 모든 레벨이 시간 초과면 정말 오래 걸리는 코드이므로 다시 하지 않음
+6. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
+7. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
 
 ### `runOneLevel(...) : OptimizationResult` (private)
 특정 최적화 레벨 하나에 대한 컴파일(및 옵트인 시 실행 벤치마크)을 수행.
@@ -131,7 +133,7 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
   임시 디렉터리 경로에 공백이나 한글이 있어도 컴파일러 인자로 전달되지 않음
 - **30초 타임아웃**(`COMPILE_TIMEOUT_SECONDS`) — 초과하면 `"컴파일 시간 초과"` 메시지를 담은 실패 결과 반환.
   새로 켠 컴퓨터의 첫 컴파일은 컴파일러와 표준 라이브러리를 디스크에서 읽느라 짧은 코드도 10초를 넘길 수 있어서 넉넉하게 잡음.
-  명령마다 적용되므로 컴파일되지 않는 코드는 레벨 수만큼 기다림 (Rust는 6개 레벨이라 최대 3분)
+  명령마다 적용되므로 모든 레벨이 시간 초과되는 코드는 레벨 수만큼 기다림 (Rust는 6개 레벨이라 약 3분)
 - 프로세스를 시작하지 못한 경우(`IOException`)에도 예외 대신 사유를 담은 실패 결과를 반환
 
 ### `cleanup(Path workDir)` / `deleteRecursively(Path dir)` (private)

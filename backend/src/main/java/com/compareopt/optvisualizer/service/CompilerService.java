@@ -41,6 +41,7 @@ public class CompilerService {
     private static final Logger log = LoggerFactory.getLogger(CompilerService.class);
     // 새로 켠 컴퓨터의 첫 컴파일은 컴파일러와 표준 라이브러리를 디스크에서 읽느라 짧은 코드도 10초를 넘길 수 있다.
     private static final long COMPILE_TIMEOUT_SECONDS = 30;
+    private static final String COMPILE_TIMEOUT_MESSAGE = "컴파일 시간 초과 (" + COMPILE_TIMEOUT_SECONDS + "초)";
     private static final long EXECUTION_TIMEOUT_SECONDS = 5;
     private static final int BENCHMARK_RUNS = 5;
     private static final int LINK_ERROR_DETAIL_MAX_CHARS = 1000;
@@ -78,6 +79,7 @@ public class CompilerService {
                 result.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(result);
             }
+            retryTimedOutLevels(results, levels, workDir, compiler, toolchain, runBenchmark);
         } catch (IOException e) {
             log.error("임시 작업 디렉터리 생성 실패", e);
             for (OptLevel level : levels) {
@@ -89,6 +91,26 @@ public class CompilerService {
             cleanup(workDir);
         }
         return results;
+    }
+
+    /**
+     * 첫 컴파일이 디스크를 읽느라 제한 시간을 넘겨도, 읽은 내용은 OS 캐시에 남아서 다시 하면 금방 끝난다.
+     * 그래서 다른 레벨이 컴파일됐다면 코드 문제가 아닌 것으로 보고 시간 초과된 레벨을 한 번 더 컴파일한다.
+     * 모든 레벨이 시간 초과면 컴파일이 정말 오래 걸리는 코드이므로 다시 하지 않는다.
+     */
+    private void retryTimedOutLevels(List<OptimizationResult> results, List<OptLevel> levels, Path workDir,
+                                     CompilerRegistry.ResolvedCompiler compiler, Toolchain toolchain,
+                                     boolean runBenchmark) {
+        if (results.stream().noneMatch(OptimizationResult::isSuccess)) {
+            return;
+        }
+        for (int i = 0; i < results.size(); i++) {
+            if (COMPILE_TIMEOUT_MESSAGE.equals(results.get(i).getErrorMessage())) {
+                OptimizationResult retried = runOneLevel(workDir, levels.get(i), compiler, toolchain, runBenchmark);
+                retried.setCompilerInfo(compiler.id(), compiler.label());
+                results.set(i, retried);
+            }
+        }
     }
 
     private OptimizationResult runOneLevel(Path workDir, OptLevel level, CompilerRegistry.ResolvedCompiler compiler,
@@ -223,7 +245,7 @@ public class CompilerService {
             ProcessResult result = processRunner.run(
                     command, workDir, compiler.toolDir(), Duration.ofSeconds(COMPILE_TIMEOUT_SECONDS));
             if (result.timedOut()) {
-                return new ProcessResult(-1, "컴파일 시간 초과 (" + COMPILE_TIMEOUT_SECONDS + "초)", true, result.elapsedNanos());
+                return new ProcessResult(-1, COMPILE_TIMEOUT_MESSAGE, true, result.elapsedNanos());
             }
             return result;
         } catch (IOException e) {

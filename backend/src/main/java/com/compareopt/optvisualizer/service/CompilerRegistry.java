@@ -31,8 +31,8 @@ public class CompilerRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(CompilerRegistry.class);
     // 후보가 없으면 즉시 실패하므로 이 시간은 "실행은 되는데 응답이 없는" 경우에만 쓰인다.
-    // Windows에서는 큰 실행 파일의 첫 실행이 백신 검사로 수 초 걸릴 수 있어 넉넉하게 잡는다.
-    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
+    // Windows에서는 큰 실행 파일의 첫 실행이 백신 검사나 디스크 읽기로 10초를 넘길 수 있어 넉넉하게 잡는다.
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(30);
 
     private final ProcessRunner processRunner;
     private final List<ResolvedCompiler> compilers = new ArrayList<>();
