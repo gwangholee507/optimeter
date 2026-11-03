@@ -6,7 +6,7 @@
 외부 라이브러리 없이 직접 구현한 줄 단위 diff 유틸리티.
 
 ### `diffLines(base, target) : { lineStates, addedCount, removedCount }`
-- **입력**: `base`(기준이 되는 줄 배열, 보통 O0 어셈블리), `target`(비교 대상 줄 배열)
+- **입력**: `base`(기준이 되는 줄 배열, 기본은 O0 어셈블리이고 화면에서 고른 비교 기준 레벨), `target`(비교 대상 줄 배열)
 - **알고리즘**: LCS(최장 공통 부분 수열)를 DP 테이블(`dp[i][j]`)로 계산한 뒤, 뒤에서부터 되짚어가며(backtrack)
   - `base[i] === target[j]`면 `'same'`
   - 아니고 `base`에서 삭제하는 게 유리하면(`dp[i+1][j] >= dp[i][j+1]`) `removedCount` 증가
@@ -78,9 +78,18 @@
 - `baseAssembly`가 있으면 `diffLines()`로 각 줄이 `'added'`인지 계산해서, 새로 생긴/바뀐 줄에
   `diff-added` CSS 클래스를 붙여 초록색으로 강조
 
+### `BaseLevelSelector({ results, base, onSelect })` (컴포넌트)
+결과 위에 놓이는 "비교 기준" 버튼 그룹. `results`의 레벨마다 `levelLabel`을 단 버튼을 하나씩 그립니다
+(레벨 목록을 프론트엔드에 두지 않으므로 언어마다 레벨이 달라도 그대로 동작).
+- 지금 `base`인 레벨의 버튼은 채워진 색(`base-selector-btn-active`)과 `aria-pressed=true`로 표시
+- 컴파일에 실패한 레벨은 비교할 어셈블리가 없으므로 버튼을 `disabled`로 막음
+- 누르면 `onSelect(level)`로 그 레벨 id를 올려보냄 (`App`의 `setBaseLevel`)
+
 ### `OptimizationColumn({ result, base })` (컴포넌트)
-결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과(응답의 첫 번째 레벨)입니다.
+결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과입니다
+(기본은 응답의 첫 번째 레벨, `BaseLevelSelector`로 고르면 그 레벨).
 - 헤더에 `result.levelLabel`(예: `-O0`) + `InfoTooltip(result.levelDescription)`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
+- 기준 레벨 자신이면 헤더에 "기준" 배지를 붙이고 테두리를 강조색(`opt-column-base`)으로 표시
 - 기준 레벨이 아니고 기준과 자신 모두 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs {base.levelLabel})` 배지를 헤더에 추가
 - `result.executionTimeMs`가 있으면(= `runBenchmark=true`였고 측정 성공) `⏱ 실행 {formatMs(...)}` 배지 추가
 - 측정을 시도했지만 실행 파일을 못 만들었으면(주로 `main()` 없음) `executionError`를 툴팁으로 붙인
@@ -93,6 +102,8 @@
 - `code`: 텍스트 에디터에 입력된 코드 (처음에는 `SAMPLE_CODE.c`)
 - `drafts`: 언어 id별로 편집하던 코드. 다른 언어에 갔다가 돌아오면 여기서 복원 (메모리에만 있어서 새로고침하면 사라짐)
 - `results`: 백엔드 응답(`OptimizationResult` 배열), 아직 요청 전이면 `null`
+- `baseLevel`: "비교 기준"으로 고른 레벨 id. `null`이면 첫 번째 결과를 기준으로 씀.
+  렌더링할 때 `results`에서 이 id를 찾고, 없으면 `results[0]`을 기준(`base`)으로 삼음
 - `loading`: 요청 진행 중 여부 (버튼 비활성화 + "컴파일 중..." 텍스트에 사용)
 - `error`: 요청 실패 시 에러 메시지
 - `compilers`: `GET /api/compilers` 응답(`{id, label, available, language, languageLabel}` 배열). 받기 전이나 실패 시 `FALLBACK_COMPILERS`
@@ -114,7 +125,8 @@
    (컴파일러만 바꿀 때는 코드도 결과도 그대로 둠)
 
 #### `handleCompare()` (내부 함수, "비교하기" 버튼의 onClick)
-1. `loading = true`, 이전 `results`/`error` 초기화
+1. `loading = true`, 이전 `results`/`error` 초기화, `baseLevel = null`
+   (이전에 고른 기준 레벨이 새 결과에서는 컴파일에 실패했을 수도 있어서 첫 레벨로 되돌림)
 2. `POST /api/compile`로 `{ code, compiler: selectedCompiler, runBenchmark }`를 JSON으로 전송 (언어는 보내지 않음 — 서버가 컴파일러로 정함)
 3. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
    메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
@@ -134,7 +146,8 @@
 3. "비교하기" 버튼, 에러 메시지(있으면)
 4. `results`가 있으면:
    - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
-   - 첫 번째 결과(`results[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 각 결과를 `OptimizationColumn`으로 렌더링
+   - `BaseLevelSelector`("비교 기준" 버튼 그룹)
+   - `base`(기본은 `results[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 각 결과를 `OptimizationColumn`으로 렌더링
 
 ---
 

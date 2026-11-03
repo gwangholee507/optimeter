@@ -129,6 +129,63 @@
   font-weight: 500;
 }
 
+.base-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.base-selector-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: #999;
+  margin-right: 0.25rem;
+}
+
+.base-selector-btn {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid #444;
+  background: transparent;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.base-selector-btn:hover:not(:disabled) {
+  border-color: #646cff;
+  color: #fff;
+}
+
+.base-selector-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.base-selector-btn-active {
+  background: #646cff;
+  border-color: #646cff;
+  color: white;
+}
+
+.base-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #646cff;
+  border: 1px solid #646cff;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+.opt-column.opt-column-base {
+  border-color: #646cff;
+}
+
 .results-section {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -229,7 +286,7 @@
   margin: 0 -0.25rem;
 }
 
-/* O0 대비 새로 생기거나 바뀐 줄: 초록색으로 강조 */
+/* 비교 기준 레벨 대비 새로 생기거나 바뀐 줄: 초록색으로 강조 */
 .asm-line.diff-added {
   background: rgba(46, 160, 67, 0.25);
   color: #7ee787;

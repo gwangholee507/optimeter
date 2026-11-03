@@ -33,6 +33,7 @@
    ▼
 [frontend/src/App.jsx] setResults(data)
    │  8. 첫 번째 결과(clang/gcc는 -O0)를 기준(baseline)으로 삼아
+   │     ("비교 기준" 버튼으로 다른 레벨을 고르면 그 레벨이 기준 — 다시 컴파일하면 첫 레벨로 돌아감)
    ▼
 [frontend/src/OptimizationColumn + AssemblyView]
    │  9. diff.js 의 diffLines() 로 기준 레벨 대비 달라진 줄 계산
