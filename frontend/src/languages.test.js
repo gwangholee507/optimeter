@@ -63,6 +63,13 @@ describe('switchDraft', () => {
     expect(drafts.c).toBe('int edited;')
   })
 
+  it('Rust로 처음 가면 Rust 예제를 넣는다', () => {
+    const { code } = switchDraft({}, 'c', 'rust', 'int edited;')
+
+    expect(code).toBe(SAMPLE_CODE.rust)
+    expect(code).toContain('pub fn')
+  })
+
   it('다시 돌아오면 보관해둔 초안을 복원한다', () => {
     const toCpp = switchDraft({}, 'c', 'cpp', 'int edited;')
     const backToC = switchDraft(toCpp.drafts, 'cpp', 'c', 'template <class T> T id(T x);')
@@ -72,6 +79,6 @@ describe('switchDraft', () => {
   })
 
   it('예제가 없는 언어는 빈 코드로 시작한다', () => {
-    expect(switchDraft({}, 'c', 'rust', 'int x;').code).toBe('')
+    expect(switchDraft({}, 'c', 'zig', 'int x;').code).toBe('')
   })
 })

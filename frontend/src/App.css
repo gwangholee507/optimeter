@@ -202,8 +202,10 @@
 
 .opt-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: baseline;
+  gap: 0.2rem 0.6rem;
   padding: 0.6rem 0.9rem;
   background: #2a2a2a;
   border-bottom: 1px solid #333;
@@ -212,6 +214,7 @@
 .opt-header h3 {
   margin: 0;
   font-size: 1rem;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -296,6 +299,16 @@
 .asm-block.error {
   color: #ff6b6b;
   white-space: pre-wrap;
+}
+
+.result-notice {
+  margin: 0;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #e3b341;
+  background: #2a2413;
+  border-bottom: 1px solid #333;
 }
 
 .error-badge {

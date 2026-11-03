@@ -8,7 +8,8 @@ package com.compareopt.optvisualizer.toolchain;
  */
 public enum Language {
     C("c", "C", "input.c"),
-    CPP("cpp", "C++", "input.cpp");
+    CPP("cpp", "C++", "input.cpp"),
+    RUST("rust", "Rust", "input.rs");
 
     private final String id;
     private final String label;

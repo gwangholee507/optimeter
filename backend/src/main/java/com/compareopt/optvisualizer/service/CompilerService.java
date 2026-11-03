@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 선택된 컴파일러를 서브프로세스로 호출해 최적화 레벨별로
@@ -38,7 +39,9 @@ import java.util.List;
 public class CompilerService {
 
     private static final Logger log = LoggerFactory.getLogger(CompilerService.class);
-    private static final long COMPILE_TIMEOUT_SECONDS = 10;
+    // 새로 켠 컴퓨터의 첫 컴파일은 컴파일러와 표준 라이브러리를 디스크에서 읽느라 짧은 코드도 10초를 넘길 수 있다.
+    private static final long COMPILE_TIMEOUT_SECONDS = 30;
+    private static final String COMPILE_TIMEOUT_MESSAGE = "컴파일 시간 초과 (" + COMPILE_TIMEOUT_SECONDS + "초)";
     private static final long EXECUTION_TIMEOUT_SECONDS = 5;
     private static final int BENCHMARK_RUNS = 5;
     private static final int LINK_ERROR_DETAIL_MAX_CHARS = 1000;
@@ -55,7 +58,8 @@ public class CompilerService {
 
     public List<OptimizationResult> compareOptimizationLevels(String sourceCode, String compilerId, boolean runBenchmark) {
         CompilerRegistry.ResolvedCompiler compiler = compilerRegistry.resolve(compilerId);
-        List<OptLevel> levels = compiler.toolchain().levels();
+        Toolchain toolchain = compiler.toolchain().forSource(sourceCode);
+        List<OptLevel> levels = toolchain.levels();
 
         List<OptimizationResult> results = new ArrayList<>();
         Path workDir = null;
@@ -64,10 +68,18 @@ public class CompilerService {
             Files.writeString(workDir.resolve(compiler.language().sourceFileName()), sourceCode, StandardCharsets.UTF_8);
 
             for (OptLevel level : levels) {
-                OptimizationResult result = runOneLevel(workDir, level, compiler, runBenchmark);
+                OptimizationResult result = runOneLevel(workDir, level, compiler, toolchain, runBenchmark);
+                Optional<Toolchain> corrected = result.isSuccess()
+                        ? Optional.empty() : toolchain.correctedBy(result.getErrorMessage());
+                if (corrected.isPresent()) {
+                    // 남은 레벨도 바로잡은 명령줄로 컴파일한다
+                    toolchain = corrected.get();
+                    result = runOneLevel(workDir, level, compiler, toolchain, runBenchmark);
+                }
                 result.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(result);
             }
+            retryTimedOutLevels(results, levels, workDir, compiler, toolchain, runBenchmark);
         } catch (IOException e) {
             log.error("임시 작업 디렉터리 생성 실패", e);
             for (OptLevel level : levels) {
@@ -81,16 +93,36 @@ public class CompilerService {
         return results;
     }
 
-    private OptimizationResult runOneLevel(Path workDir, OptLevel level,
-                                            CompilerRegistry.ResolvedCompiler compiler, boolean runBenchmark) {
+    /**
+     * 첫 컴파일이 디스크를 읽느라 제한 시간을 넘겨도, 읽은 내용은 OS 캐시에 남아서 다시 하면 금방 끝난다.
+     * 그래서 다른 레벨이 컴파일됐다면 코드 문제가 아닌 것으로 보고 시간 초과된 레벨을 한 번 더 컴파일한다.
+     * 모든 레벨이 시간 초과면 컴파일이 정말 오래 걸리는 코드이므로 다시 하지 않는다.
+     */
+    private void retryTimedOutLevels(List<OptimizationResult> results, List<OptLevel> levels, Path workDir,
+                                     CompilerRegistry.ResolvedCompiler compiler, Toolchain toolchain,
+                                     boolean runBenchmark) {
+        if (results.stream().noneMatch(OptimizationResult::isSuccess)) {
+            return;
+        }
+        for (int i = 0; i < results.size(); i++) {
+            if (COMPILE_TIMEOUT_MESSAGE.equals(results.get(i).getErrorMessage())) {
+                OptimizationResult retried = runOneLevel(workDir, levels.get(i), compiler, toolchain, runBenchmark);
+                retried.setCompilerInfo(compiler.id(), compiler.label());
+                results.set(i, retried);
+            }
+        }
+    }
+
+    private OptimizationResult runOneLevel(Path workDir, OptLevel level, CompilerRegistry.ResolvedCompiler compiler,
+                                            Toolchain toolchain, boolean runBenchmark) {
         long start = System.currentTimeMillis();
-        Toolchain toolchain = compiler.toolchain();
         String sourceName = compiler.language().sourceFileName();
         String asmName = "out-" + level.id() + ".s";
         String objName = "out-" + level.id() + ".o";
+        List<List<String>> commands = toolchain.codegenCommands(level, sourceName, asmName, objName);
 
         // 1) 어셈블리 생성 (예: {compiler} -S -O{n} input.c -o out.s)
-        ProcessResult asmResult = runCompiler(workDir, compiler, toolchain.assemblyArgs(level, sourceName, asmName));
+        ProcessResult asmResult = runCompiler(workDir, compiler, commands.get(0));
         long elapsed = System.currentTimeMillis() - start;
 
         if (!asmResult.succeeded()) {
@@ -99,7 +131,11 @@ public class CompilerService {
 
         // 2) 오브젝트 파일 생성 (크기 비교용, 예: {compiler} -c -O{n} input.c -o out.o)
         //    main() 유무와 무관하게 만들 수 있어야 하므로 링크하지 않는다.
-        ProcessResult objResult = runCompiler(workDir, compiler, toolchain.objectArgs(level, sourceName, objName));
+        //    rustc처럼 어셈블리와 한 번에 만드는 컴파일러는 남은 명령이 없다.
+        ProcessResult objResult = asmResult;
+        for (List<String> args : commands.subList(1, commands.size())) {
+            objResult = runCompiler(workDir, compiler, args);
+        }
 
         long binarySize = 0;
         Path objFile = workDir.resolve(objName);
@@ -122,9 +158,10 @@ public class CompilerService {
 
         long totalElapsed = System.currentTimeMillis() - start;
         OptimizationResult result = OptimizationResult.success(level, assembly, binarySize, totalElapsed);
+        toolchain.assemblyNotice(assembly).ifPresent(result::setNotice);
 
         if (runBenchmark) {
-            ExecutionOutcome outcome = benchmarkExecution(workDir, level, compiler);
+            ExecutionOutcome outcome = benchmarkExecution(workDir, level, compiler, toolchain);
             result.setExecutionResult(outcome.timeMs, outcome.error);
         }
 
@@ -136,14 +173,15 @@ public class CompilerService {
      * main()이 없는 코드는 링크에 실패하므로 이 경우 에러 메시지만 채우고 조용히 넘어간다
      * (컴파일 자체는 성공했으므로 전체 결과를 실패로 처리하지 않음).
      */
-    private ExecutionOutcome benchmarkExecution(Path workDir, OptLevel level, CompilerRegistry.ResolvedCompiler compiler) {
+    private ExecutionOutcome benchmarkExecution(Path workDir, OptLevel level,
+                                                 CompilerRegistry.ResolvedCompiler compiler, Toolchain toolchain) {
         // 확장자 .exe는 Windows에서 실행 파일로 인식되려면 필요하고, macOS/Linux에서는 있어도 무해하다.
         String exeName = "out-" + level.id() + ".exe";
         Path exeFile = workDir.resolve(exeName);
 
         String sourceName = compiler.language().sourceFileName();
         ProcessResult linkResult = runCompiler(
-                workDir, compiler, compiler.toolchain().executableArgs(level, sourceName, exeName));
+                workDir, compiler, toolchain.executableArgs(level, sourceName, exeName));
 
         if (!linkResult.succeeded() || !Files.exists(exeFile)) {
             return new ExecutionOutcome(null, linkFailureMessage(linkResult.output()));
@@ -157,6 +195,11 @@ public class CompilerService {
                         Duration.ofSeconds(EXECUTION_TIMEOUT_SECONDS));
                 if (run.timedOut()) {
                     return new ExecutionOutcome(null, "실행 시간 초과 (" + EXECUTION_TIMEOUT_SECONDS + "초)");
+                }
+                // 중간에 죽은 프로그램의 시간은 끝까지 돈 다른 레벨과 비교할 수 없다 (실제보다 훨씬 빠르게 보인다)
+                Optional<String> failure = toolchain.executionFailure(run.exitCode());
+                if (failure.isPresent()) {
+                    return new ExecutionOutcome(null, failure.get());
                 }
                 bestNanos = Math.min(bestNanos, run.elapsedNanos());
             }
@@ -202,7 +245,7 @@ public class CompilerService {
             ProcessResult result = processRunner.run(
                     command, workDir, compiler.toolDir(), Duration.ofSeconds(COMPILE_TIMEOUT_SECONDS));
             if (result.timedOut()) {
-                return new ProcessResult(-1, "컴파일 시간 초과 (" + COMPILE_TIMEOUT_SECONDS + "초)", true, result.elapsedNanos());
+                return new ProcessResult(-1, COMPILE_TIMEOUT_MESSAGE, true, result.elapsedNanos());
             }
             return result;
         } catch (IOException e) {

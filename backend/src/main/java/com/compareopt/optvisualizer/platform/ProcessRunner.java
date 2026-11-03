@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
  *       출력 대기 상태로 멈춰서, 경고/에러가 많은 코드가 "시간 초과"로 잘못 처리되기 때문.</li>
  *   <li>타임아웃 시 자식 프로세스까지 함께 죽인다 — 드라이버(gcc)만 죽이면 실제 컴파일러(cc1)가
  *       살아남고, Windows에서는 그 프로세스가 임시 파일을 잡고 있어 정리가 실패한다.</li>
+ *   <li>표준 입력을 바로 닫는다 — 입력을 읽는 프로그램이 오지 않을 입력을 기다리다 "시간 초과"로 처리되기 때문.</li>
  *   <li>PATH 환경 변수 이름의 대소문자(Windows는 보통 "Path")를 가리지 않고 다룬다.</li>
  * </ul>
  */
@@ -107,6 +108,7 @@ public class ProcessRunner {
         long t0 = System.nanoTime();
         Process process = pb.start();
         try {
+            process.getOutputStream().close();
             boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
             long elapsed = System.nanoTime() - t0;
             if (!finished) {
@@ -114,7 +116,7 @@ public class ProcessRunner {
                 return new ProcessResult(-1, "", true, elapsed);
             }
             return new ProcessResult(process.exitValue(), "", false, elapsed);
-        } catch (InterruptedException e) {
+        } catch (IOException | InterruptedException e) {
             killTree(process);
             throw e;
         }

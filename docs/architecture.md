@@ -3,12 +3,12 @@
 ```
 [브라우저]
    │  0. 페이지 로드 시 GET /api/compilers 로 컴파일러 목록(언어 포함)을 받아 언어별로 묶어서 드롭다운에 채움
-   │  1. 사용자가 언어(C/C++)와 컴파일러를 고르고 코드 입력, 실행 시간 측정 여부 체크 후 "비교하기" 클릭
+   │  1. 사용자가 언어(C/C++/Rust)와 컴파일러를 고르고 코드 입력, 실행 시간 측정 여부 체크 후 "비교하기" 클릭
    │       (언어를 바꾸면 그 언어의 예제 코드가 들어가고, 고치던 코드는 언어별 초안으로 보관)
    ▼
 [frontend/src/App.jsx] handleCompare()
    │  2. POST /api/compile  (화면을 내려준 바로 그 서버로 — 아래 "화면과 API는 어떻게 한 서버에서 나오나요?" 참고)
-   │       { code: "...", compiler: "clang"|"gcc"|"clangxx"|"gxx", runBenchmark: true|false }
+   │       { code: "...", compiler: "clang"|"gcc"|"clangxx"|"gxx"|"rustc", runBenchmark: true|false }
    │       (언어는 따로 보내지 않음 — 서버가 컴파일러에 설정된 language로 정함)
    ▼
 [backend] CompileController.compile()
@@ -18,10 +18,10 @@
    │  4. CompilerRegistry.resolve(compilerId) 로 요청받은 id를 실제 실행 파일 경로 + 언어(Language) +
    │     명령줄 규칙(Toolchain)으로 변환
    │       (모르는 id거나 서버에 설치 안 돼 있으면 400 에러 — 사용자 입력을 커맨드에 그대로 쓰지 않음)
-   │  5. 임시 디렉터리 생성 → 언어별 파일 이름(C는 input.c, C++은 input.cpp)으로 저장
-   │  6. Toolchain이 정한 레벨(clang/gcc는 O0~O3) 각각에 대해 runOneLevel() 반복 호출
+   │  5. 임시 디렉터리 생성 → 언어별 파일 이름(C는 input.c, C++은 input.cpp, Rust는 input.rs)으로 저장
+   │  6. Toolchain이 정한 레벨(clang/gcc는 O0~O3, rustc는 0~3, s, z) 각각에 대해 runOneLevel() 반복 호출
    │       (컴파일러 실행은 전부 platform.ProcessRunner를 거침 — 임시 디렉터리를 작업 디렉터리로 두고 실행)
-   │       (인자는 Toolchain이 만듦 — 아래는 clang/gcc 기준)
+   │       (인자는 Toolchain이 만듦 — 아래는 clang/gcc 기준, rustc는 어셈블리와 오브젝트 파일을 한 번에 만듦)
    │       - {compiler} -S -O{n} → 어셈블리(.s) 생성
    │       - {compiler} -c -O{n} → 오브젝트 파일(.o) 생성 (크기 비교용)
    │       - runBenchmark=true면 {compiler} -O{n} → 실행 파일(.exe) 링크 후 5회 실행,
@@ -66,9 +66,10 @@
 
 `CompilerRegistry`가 `application.yml`의 `compiler.options`에 정의된 후보(예: gcc는 `gcc-16`, `gcc-15`, ...)를
 서버 시작 시 한 번씩 `--version` 실행해보고 실제로 동작하는 것만 "사용 가능"으로 표시합니다.
-각 컴파일러에는 언어(`language: c` / `cpp`)와 컴파일러 계열(`toolchain: clang` / `gcc`)도 함께 적어두며,
+각 컴파일러에는 언어(`language: c` / `cpp` / `rust`)와 컴파일러 계열(`toolchain: clang` / `gcc` / `rustc`)도 함께 적어두며,
 어떤 파일 이름과 인자로 컴파일할지는 이 두 값으로 정해집니다 (아래 "언어/컴파일러마다 다른 부분" 참고).
 C++ 컴파일러(`clangxx` = clang++, `gxx` = g++)는 C 컴파일러와 같은 계열이고 실행 파일만 다릅니다.
+Rust(`rustc`)는 명령줄 규칙이 달라서 계열이 따로 있습니다.
 화면은 `/api/compilers`의 `language`로 컴파일러를 언어별로 묶어서 "언어 → 컴파일러" 두 단계로 고르게 합니다.
 후보는 PATH에 있는 실행 파일 이름일 수도, 절대 경로일 수도 있고, 특정 OS에서만 시도하는 후보
 (`os-candidates`, 예: Windows의 `C:\msys64\ucrt64\bin\gcc.exe`)도 따로 둘 수 있습니다.
@@ -85,8 +86,8 @@ OS마다 사정이 다릅니다. 이런 차이는 아래 세 곳에만 모아두
 
 | OS마다 다른 것 | 처리하는 곳 | 방법 |
 |---|---|---|
-| 컴파일러가 설치되는 위치 | `application.yml`의 `os-candidates` + `CompilerRegistry` | PATH의 이름을 먼저 시도하고, 그 OS의 기본 설치 위치(Windows의 MSYS2, LLVM)를 이어서 시도. 그래도 못 찾으면 `OPTVIS_CLANG`/`OPTVIS_GCC`/`OPTVIS_CLANGXX`/`OPTVIS_GXX` 환경 변수로 직접 지정 |
-| 프로세스 실행/종료 방식 | `platform.ProcessRunner` | 출력은 파일로 받고(파이프 버퍼가 차서 멈추는 문제 방지), 타임아웃 시 자식 프로세스까지 종료, PATH 환경 변수 이름의 대소문자 차이 흡수 |
+| 컴파일러가 설치되는 위치 | `application.yml`의 `os-candidates` + `CompilerRegistry` | PATH의 이름을 먼저 시도하고, 그 OS의 기본 설치 위치(Windows의 MSYS2, LLVM)를 이어서 시도. 그래도 못 찾으면 `OPTVIS_CLANG`/`OPTVIS_GCC`/`OPTVIS_CLANGXX`/`OPTVIS_GXX`/`OPTVIS_RUSTC` 환경 변수로 직접 지정 |
+| 프로세스 실행/종료 방식 | `platform.ProcessRunner` | 출력은 파일로 받고(파이프 버퍼가 차서 멈추는 문제 방지), 표준 입력은 바로 닫고, 타임아웃 시 자식 프로세스까지 종료, PATH 환경 변수 이름의 대소문자 차이 흡수 |
 | 지금 어떤 OS인지 판단 | `platform.HostOs` | JVM의 `os.name`으로 판단. `os-candidates`의 키(`windows`/`macos`/`linux`)를 고르는 데만 사용 |
 
 그 밖에 OS 차이를 **분기 없이** 피해 가는 장치들:
@@ -117,14 +118,18 @@ OS 차이를 `platform` 패키지에 모아둔 것과 같은 원칙으로, 언�
 
 | 언어/컴파일러마다 다른 것 | 처리하는 곳 |
 |---|---|
-| 소스 파일 이름 (`input.c`, `input.cpp`)과 화면의 언어 이름 | `Language` (`application.yml`의 `language`) |
-| 최적화 레벨 목록 (`O0`~`O3`)과 화면의 열 제목·설명 | `Toolchain.levels()` (`OptLevel`) |
-| 어셈블리·오브젝트·실행 파일을 만드는 인자 (`-S -O2 ...`) | `Toolchain`의 `assemblyArgs()` / `objectArgs()` / `executableArgs()` |
+| 소스 파일 이름 (`input.c`, `input.cpp`, `input.rs`)과 화면의 언어 이름 | `Language` (`application.yml`의 `language`) |
+| 최적화 레벨 목록 (`O0`~`O3`, `0`~`3`, `s`, `z`)과 화면의 열 제목·설명 | `Toolchain.levels()` (`OptLevel`) |
+| 코드 모양에 따른 컴파일 방식 (Rust의 프로그램/라이브러리) | `Toolchain.forSource()` |
+| 고른 컴파일 방식이 틀렸을 때 바로잡기 (Rust의 E0601) | `Toolchain.correctedBy()` |
+| 어셈블리·오브젝트·실행 파일을 만드는 인자 (`-S -O2 ...`) | `Toolchain`의 `codegenCommands()` / `executableArgs()` |
 | 설치 확인 방법과 "진짜 그 컴파일러인지" 판정 | `Toolchain.versionArgs()` / `versionMismatch()` |
+| 실행 시간을 믿을 수 없는 종료 코드 (Rust의 패닉) | `Toolchain.executionFailure()` |
+| 결과에 붙일 안내 문구 (Rust의 빈 어셈블리) | `Toolchain.assemblyNotice()` |
 
 어떤 `Toolchain` 구현을 쓸지는 `application.yml`의 `toolchain` 값(`ToolchainKind`)으로 정합니다.
-지금은 clang/gcc와 C++의 clang++/g++ 모두 GCC식 명령줄을 쓰는 `GccStyleToolchain` 하나를 공유합니다.
-새 언어나 컴파일러가 필요해지면 `CompilerService`에 `if (rust)`를 넣는 대신 이 패키지에 추가해주세요.
+clang/gcc와 C++의 clang++/g++는 GCC식 명령줄을 쓰는 `GccStyleToolchain` 하나를 공유하고, rustc는 `RustcToolchain`을 씁니다.
+새 언어나 컴파일러가 필요해지면 `CompilerService`에 언어별 분기를 넣는 대신 이 패키지에 추가해주세요.
 자세한 내용은 [backend.md](./backend.md#toolchain-패키지--언어컴파일러마다-다른-부분) 참고.
 
 ## 왜 오브젝트 파일(.o)로 크기를 재나요?
@@ -133,6 +138,7 @@ OS 차이를 `platform` 패키지에 모아둔 것과 같은 원칙으로, 언�
 `main()`이 없으면 실행 파일로 **링크**할 수 없어서(`ld: symbol(s) not found for "_main"`),
 링크 단계 없이 컴파일만 하는 `-c` 옵션으로 오브젝트 파일을 만들어 크기를 비교합니다.
 이 방식은 링크 오버헤드가 섞이지 않아서 오히려 "순수 코드젠 크기" 비교에는 더 적합합니다.
+Rust는 실행 파일에 표준 라이브러리가 통째로 들어가서(작은 프로그램도 수백 KB) 오브젝트 파일로 재는 편이 더 유리합니다.
 
 ## 보안 관련 주의사항
 

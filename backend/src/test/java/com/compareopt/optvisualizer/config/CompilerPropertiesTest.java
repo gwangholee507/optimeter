@@ -22,7 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringJUnitConfig(initializers = ConfigDataApplicationContextInitializer.class)
 @EnableConfigurationProperties(CompilerProperties.class)
 // 테스트를 돌리는 사람의 환경 변수(OPTVIS_CLANG 등)에 결과가 좌우되지 않도록 비워둔다.
-@TestPropertySource(properties = {"OPTVIS_CLANG=", "OPTVIS_GCC=", "OPTVIS_CLANGXX=", "OPTVIS_GXX="})
+@TestPropertySource(properties = {"OPTVIS_CLANG=", "OPTVIS_GCC=", "OPTVIS_CLANGXX=", "OPTVIS_GXX=", "OPTVIS_RUSTC=",
+        "user.home=/home/tester"})
 class CompilerPropertiesTest {
 
     @Autowired
@@ -31,7 +32,7 @@ class CompilerPropertiesTest {
     @Test
     void application_yml의_컴파일러_목록이_바인딩된다() {
         assertThat(properties.getOptions()).extracting(CompilerProperties.Option::getId)
-                .containsExactly("clang", "gcc", "clangxx", "gxx");
+                .containsExactly("clang", "gcc", "clangxx", "gxx", "rustc");
     }
 
     @Test
@@ -44,6 +45,19 @@ class CompilerPropertiesTest {
         assertThat(option("clangxx").getToolchain()).isEqualTo(ToolchainKind.CLANG);
         assertThat(option("gxx").getLanguage()).isEqualTo(Language.CPP);
         assertThat(option("gxx").getToolchain()).isEqualTo(ToolchainKind.GCC);
+        assertThat(option("rustc").getLanguage()).isEqualTo(Language.RUST);
+        assertThat(option("rustc").getToolchain()).isEqualTo(ToolchainKind.RUSTC);
+    }
+
+    @Test
+    void rustc는_PATH에_없으면_rustup의_기본_설치_위치를_시도한다() {
+        // 후보의 ${user.home}은 서버를 띄운 사용자의 홈 디렉터리로 바뀐다
+        assertThat(option("rustc").candidatesFor(HostOs.LINUX))
+                .containsExactly("rustc", "/home/tester/.cargo/bin/rustc");
+        assertThat(option("rustc").candidatesFor(HostOs.MACOS))
+                .containsExactly("rustc", "/home/tester/.cargo/bin/rustc");
+        assertThat(option("rustc").candidatesFor(HostOs.WINDOWS))
+                .containsExactly("rustc", "/home/tester\\.cargo\\bin\\rustc.exe", "C:\\msys64\\ucrt64\\bin\\rustc.exe");
     }
 
     @Test

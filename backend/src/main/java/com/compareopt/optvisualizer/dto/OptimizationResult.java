@@ -12,6 +12,7 @@ public class OptimizationResult {
     private Long binarySizeBytes;  // 실행 파일 크기 (실패 시 null)
     private long compileTimeMs;
     private String errorMessage;   // 실패 시 컴파일러 stderr
+    private String notice;         // 성공했지만 결과를 볼 때 알아야 할 내용 (예: 어셈블리에 함수가 없는 이유). 없으면 null
 
     private String compilerId;     // 이 결과를 만든 컴파일러 id (예: "gcc")
     private String compilerLabel;  // 화면 표시용 이름 (예: "GNU GCC")
@@ -75,6 +76,14 @@ public class OptimizationResult {
 
     public String getErrorMessage() {
         return errorMessage;
+    }
+
+    public String getNotice() {
+        return notice;
+    }
+
+    public void setNotice(String notice) {
+        this.notice = notice;
     }
 
     public String getCompilerId() {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import logo from './assets/logo-horizontal-dark.svg'
 import { diffLines } from './diff'
@@ -39,30 +39,14 @@ function InfoTooltip({ text }) {
   )
 }
 
-function AssemblyView({ assembly, baseAssembly }) {
-  const lines = assembly.split('\n')
-
-  // 기준 레벨의 어셈블리가 없거나 자기 자신이 기준이면 그냥 평문으로 표시
-  if (!baseAssembly) {
-    return (
-      <pre className="asm-block">
-        {lines.map((line, idx) => (
-          <div key={idx} className="asm-line">
-            {line}
-          </div>
-        ))}
-      </pre>
-    )
-  }
-
-  const { lineStates } = diffLines(baseAssembly.split('\n'), lines)
-
+// lineStates: diffLines가 돌려준 줄별 상태. 기준 레벨이거나 비교를 건너뛰었으면 없어서 평문으로 표시된다
+function AssemblyView({ assembly, lineStates }) {
   return (
     <pre className="asm-block">
-      {lines.map((line, idx) => (
+      {assembly.split('\n').map((line, idx) => (
         <div
           key={idx}
-          className={lineStates[idx] === 'added' ? 'asm-line diff-added' : 'asm-line'}
+          className={lineStates?.[idx] === 'added' ? 'asm-line diff-added' : 'asm-line'}
         >
           {line}
         </div>
@@ -78,7 +62,7 @@ function BaseLevelSelector({ results, base, onSelect }) {
     <div className="base-selector" role="group" aria-label="비교 기준">
       <span className="base-selector-label">
         비교 기준
-        <InfoTooltip text="초록색 강조와 (+추가 / -삭제) 배지를 어느 레벨과 비교해서 계산할지 고릅니다. 예를 들어 -O2를 고르면 -O3가 -O2보다 무엇을 더 바꿨는지 볼 수 있습니다." />
+        <InfoTooltip text="초록색 강조와 (+추가 / -삭제) 배지를 어느 레벨과 비교해서 계산할지 고릅니다. 예를 들어 바로 아래 레벨을 고르면 그 레벨보다 무엇을 더 바꿨는지 볼 수 있습니다." />
       </span>
       {results.map((r) => (
         <button
@@ -100,13 +84,16 @@ function BaseLevelSelector({ results, base, onSelect }) {
 }
 
 // base: 비교 기준이 되는 결과 (기본값은 서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
-function OptimizationColumn({ result, base }) {
+// 에디터에 글자를 칠 때마다 App이 다시 그려진다. 어셈블리가 수만 줄이면 diff가 오래 걸리므로
+// memo와 useMemo로 결과가 바뀔 때만 계산한다.
+const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
   const isBaseline = result.level === base.level
   const baseAssembly = !isBaseline && base.success ? base.assembly : null
-  const diffSummary =
-    result.success && baseAssembly
-      ? diffLines(baseAssembly.split('\n'), result.assembly.split('\n'))
-      : null
+  const comparing = result.success && baseAssembly != null
+  const diffSummary = useMemo(
+    () => (comparing ? diffLines(baseAssembly.split('\n'), result.assembly.split('\n')) : null),
+    [comparing, baseAssembly, result.assembly],
+  )
 
   return (
     <div className={isBaseline ? 'opt-column opt-column-base' : 'opt-column'}>
@@ -125,6 +112,9 @@ function OptimizationColumn({ result, base }) {
                 (+{diffSummary.addedCount} / -{diffSummary.removedCount} vs {base.levelLabel})
               </span>
             )}
+            {comparing && !diffSummary && (
+              <span className="exec-badge-muted"> (줄이 너무 많아 비교 생략)</span>
+            )}
             {result.executionTimeMs != null && (
               <span className="exec-badge"> · ⏱ 실행 {formatMs(result.executionTimeMs)}</span>
             )}
@@ -139,8 +129,9 @@ function OptimizationColumn({ result, base }) {
           <span className="opt-meta error-badge">컴파일 실패</span>
         )}
       </div>
+      {result.notice && <p className="result-notice">ⓘ {result.notice}</p>}
       {result.success ? (
-        <AssemblyView assembly={result.assembly} baseAssembly={baseAssembly} />
+        <AssemblyView assembly={result.assembly} lineStates={diffSummary?.lineStates} />
       ) : (
         <div className="error-box">
           <p className="error-box-title">⚠ {result.compilerLabel || '컴파일러'}가 이 코드를 컴파일하지 못했습니다</p>
@@ -149,7 +140,7 @@ function OptimizationColumn({ result, base }) {
       )}
     </div>
   )
-}
+})
 
 function App() {
   const [code, setCode] = useState(SAMPLE_CODE[INITIAL_LANGUAGE])
@@ -235,7 +226,7 @@ function App() {
           <img src={logo} alt="Optimeter" />
         </h1>
         <p className="subtitle">
-          -O0~-O3가 코드를 어떻게 바꾸는지 눈으로 보고, 숫자로 잽니다.
+          최적화 레벨이 코드를 어떻게 바꾸는지 눈으로 보고, 숫자로 잽니다.
         </p>
       </header>
 

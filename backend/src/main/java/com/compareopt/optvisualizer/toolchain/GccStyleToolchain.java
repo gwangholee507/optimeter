@@ -55,16 +55,15 @@ final class GccStyleToolchain implements Toolchain {
         return Optional.empty();
     }
 
-    /** {compiler} -S -O{n} input.c -o out.s */
+    /**
+     * {compiler} -S -O{n} input.c -o out.s
+     * {compiler} -c -O{n} input.c -o out.o — 링크하지 않으므로 main()이 없어도 된다.
+     */
     @Override
-    public List<String> assemblyArgs(OptLevel level, String sourceFile, String outputFile) {
-        return List.of("-S", flag(level), sourceFile, "-o", outputFile);
-    }
-
-    /** {compiler} -c -O{n} input.c -o out.o — 링크하지 않으므로 main()이 없어도 된다. */
-    @Override
-    public List<String> objectArgs(OptLevel level, String sourceFile, String outputFile) {
-        return List.of("-c", flag(level), sourceFile, "-o", outputFile);
+    public List<List<String>> codegenCommands(OptLevel level, String sourceFile, String asmFile, String objFile) {
+        return List.of(
+                List.of("-S", flag(level), sourceFile, "-o", asmFile),
+                List.of("-c", flag(level), sourceFile, "-o", objFile));
     }
 
     /** {compiler} -O{n} input.c -o out.exe — 링크까지 하므로 main()이 있어야 성공한다. */

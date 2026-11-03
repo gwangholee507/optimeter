@@ -1,7 +1,7 @@
 // 언어 선택과 언어별 코드 초안을 다루는 순수 함수들 (화면 상태와 분리해서 테스트하기 위해 App.jsx에서 뺐다)
 
 // 언어를 처음 고르거나 "예제로 되돌리기"를 누르면 들어가는 예제 코드.
-// 표준 헤더를 쓰지 않는 예제만 둔다 — Windows에 LLVM만 설치한 환경에서는 표준 헤더를 찾지 못해 첫 화면부터 실패하기 때문.
+// C/C++은 표준 헤더를 쓰지 않는 예제만 둔다 — Windows에 LLVM만 설치한 환경에서는 표준 헤더를 찾지 못해 첫 화면부터 실패하기 때문.
 export const SAMPLE_CODE = {
   c: `int square(int x) {
     return x * x;
@@ -31,6 +31,15 @@ int sum_loop(int n) {
         acc.add(i);
     }
     return acc.total;
+}
+`,
+  rust: `fn square(x: i32) -> i32 {
+    x * x
+}
+
+// fn main이 없으면 라이브러리로 컴파일되어 pub 함수만 어셈블리에 남습니다.
+pub fn sum_loop(n: i32) -> i32 {
+    (0..n).map(square).sum()
 }
 `,
 }
