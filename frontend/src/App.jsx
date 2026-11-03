@@ -55,7 +55,35 @@ function AssemblyView({ assembly, lineStates }) {
   )
 }
 
-// base: 비교 기준이 되는 결과 (서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
+// 결과 위에 레벨 버튼을 늘어놓고, 누른 레벨을 diff의 비교 기준으로 삼는다.
+// 컴파일에 실패한 레벨은 비교할 어셈블리가 없으므로 고를 수 없다.
+function BaseLevelSelector({ results, base, onSelect }) {
+  return (
+    <div className="base-selector" role="group" aria-label="비교 기준">
+      <span className="base-selector-label">
+        비교 기준
+        <InfoTooltip text="초록색 강조와 (+추가 / -삭제) 배지를 어느 레벨과 비교해서 계산할지 고릅니다. 예를 들어 바로 아래 레벨을 고르면 그 레벨보다 무엇을 더 바꿨는지 볼 수 있습니다." />
+      </span>
+      {results.map((r) => (
+        <button
+          key={r.level}
+          type="button"
+          className={
+            r.level === base.level ? 'base-selector-btn base-selector-btn-active' : 'base-selector-btn'
+          }
+          aria-pressed={r.level === base.level}
+          disabled={!r.success}
+          title={r.success ? undefined : '컴파일에 실패한 레벨은 기준으로 고를 수 없습니다'}
+          onClick={() => onSelect(r.level)}
+        >
+          {r.levelLabel}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// base: 비교 기준이 되는 결과 (기본값은 서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
 // 에디터에 글자를 칠 때마다 App이 다시 그려진다. 어셈블리가 수만 줄이면 diff가 오래 걸리므로
 // memo와 useMemo로 결과가 바뀔 때만 계산한다.
 const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
@@ -68,11 +96,12 @@ const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
   )
 
   return (
-    <div className="opt-column">
+    <div className={isBaseline ? 'opt-column opt-column-base' : 'opt-column'}>
       <div className="opt-header">
         <h3>
           {result.levelLabel}
           <InfoTooltip text={result.levelDescription} />
+          {isBaseline && <span className="base-badge">기준</span>}
         </h3>
         {result.success ? (
           <span className="opt-meta">
@@ -118,6 +147,8 @@ function App() {
   // 언어별로 편집하던 코드. 다른 언어로 갔다가 돌아오면 여기서 복원한다 (새로고침하면 사라짐)
   const [drafts, setDrafts] = useState({})
   const [results, setResults] = useState(null)
+  // 비교 기준으로 고른 레벨 id. null이면 서버가 준 첫 번째 레벨을 기준으로 삼는다
+  const [baseLevel, setBaseLevel] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -129,6 +160,7 @@ function App() {
   const languages = groupByLanguage(compilers)
   const currentLanguage = languages.find((l) => l.id === language) ?? languages[0]
   const sampleCode = SAMPLE_CODE[currentLanguage.id] ?? ''
+  const base = results?.find((r) => r.level === baseLevel) ?? results?.[0]
 
   useEffect(() => {
     // 목록을 받지 못하면 FALLBACK_COMPILERS를 그대로 둬서 화면이 깨지지 않게 한다
@@ -161,6 +193,8 @@ function App() {
     setLoading(true)
     setError(null)
     setResults(null)
+    // 새 결과에서는 이전에 고른 레벨이 실패했을 수도 있으므로 기준을 첫 레벨로 되돌린다
+    setBaseLevel(null)
     try {
       const res = await fetch('/api/compile', {
         method: 'POST',
@@ -266,9 +300,10 @@ function App() {
           <p className="results-meta">
             {results[0].compilerLabel || selectedCompiler} 기준 비교 결과
           </p>
+          <BaseLevelSelector results={results} base={base} onSelect={setBaseLevel} />
           <div className="results-section">
             {results.map((r) => (
-              <OptimizationColumn key={r.level} result={r} base={results[0]} />
+              <OptimizationColumn key={r.level} result={r} base={base} />
             ))}
           </div>
         </section>
