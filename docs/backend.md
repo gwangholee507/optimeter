@@ -74,6 +74,8 @@ toolchain이 정한 버전 확인 명령(지금은 모두 `{candidate} --version
 - 버전 확인 명령이 성공해도 `Toolchain.versionMismatch()`가 그 출력을 거부하면 건너뜁니다.
   예를 들어 `toolchain: gcc`는 버전 출력에 `"clang"`이 포함되면 건너뜁니다. macOS의 `/usr/bin/gcc`가 실제로는
   Apple clang의 별칭이라, 그대로 두면 진짜 GCC가 없는데도 "GNU GCC 사용 가능"으로 오탐되기 때문입니다.
+- 버전 확인은 후보마다 30초까지 기다립니다(`PROBE_TIMEOUT`). 새로 켠 컴퓨터에서는 큰 실행 파일의 첫 실행이 백신 검사나 디스크 읽기로 10초를 넘길 수 있기 때문입니다.
+  시간을 넘기면 실패로 보고 다음 후보로 넘어가고, 후보가 모두 실패하면 그 컴파일러는 서버를 다시 켤 때까지 쓸 수 없습니다.
 - `ResolvedCompiler`는 id/label/실행 파일 경로와 함께 그 컴파일러의 `Language`와 `Toolchain`을 들고 있어서,
   `CompilerService`는 이것만 보고 어떤 파일 이름과 인자로 컴파일할지 정합니다.
 - `resolve(id)`가 이 프로젝트에서 유일하게 사용자 입력을 실제 실행 파일 경로로 바꿔주는 지점입니다.
@@ -217,7 +219,8 @@ GCC식 컴파일러와 달리 크레이트 종류에 따라 결과가 크게 달
 - `codegen-units=1`: 실행 시간을 재는 프로그램도 화면에 보여주는 어셈블리와 같은 방식으로 만듭니다.
 - `-C incremental`: 증분 빌드가 목적이 아닙니다. rustc는 작은 `pub fn`을 쓰는 쪽 크레이트에서 인라인하려고 미뤄서 레벨 1부터
   어셈블리에서 지워버리는데, 증분 빌드에서는 이 판단을 하지 않습니다. 공식 동작이 아니라서 `CompilerServiceTest`가 실제 rustc로
-  이 효과를 확인합니다. 실행 파일에는 쓰지 않습니다.
+  이 효과를 확인합니다. 실행 파일에는 쓰지 않습니다. 이 옵션을 쓰면 `.file`의 이름이 레벨마다 달라질 수 있어서 화면의 diff는
+  이 줄을 같은 줄로 봅니다 ([frontend.md](./frontend.md) 참고).
 - 비공개 함수까지 보여주는 `-C link-dead-code`는 쓰지 않습니다. 인라인되고 남은 제네릭 함수까지 전부 남아서 `pub` 함수와 반복자로 쓴
   예제 기준으로 `opt-level=2`의 어셈블리가 34줄에서 183줄로, 오브젝트 파일이 696B에서 3,264B로 늘어나 비교가 왜곡됩니다.
   대신 함수가 하나도 없으면 `assemblyNotice()`가 이유를 안내합니다 (`.cfi_startproc`이 없는 어셈블리. Windows의 작은 함수에는
@@ -246,6 +249,7 @@ macOS/Linux/Windows에서 동작이 달라지는 코드를 모아둔 패키지. 
 
 ### `ProcessRunner`
 외부 프로세스(컴파일러, 사용자 프로그램)를 실행하는 유일한 창구.
+두 실행 방식 모두 표준 입력을 바로 닫습니다. 입력을 읽는 프로그램이 오지 않을 입력을 기다리다 "시간 초과"로 처리되지 않도록, 입력이 끝난 상태로 실행됩니다.
 
 #### `run(command, workDir, toolDir, timeout) : ProcessResult`
 stdout+stderr를 합쳐서 캡처하며 실행.
@@ -254,7 +258,6 @@ stdout+stderr를 합쳐서 캡처하며 실행.
 - `workDir`가 있으면 그 디렉터리를 작업 디렉터리로 지정, `toolDir`가 있으면 자식 프로세스의 PATH 맨 앞에 추가
 - 타임아웃 시 **자식 프로세스까지** 강제 종료(`killTree`). 드라이버(`gcc`)만 죽이면 실제 컴파일러(`cc1`)가
   살아남고, Windows에서는 그 프로세스가 임시 파일을 잡고 있어 정리가 실패함
-- 표준 입력을 바로 닫음. 입력을 읽는 프로그램이 오지 않을 입력을 기다리다 "시간 초과"로 처리되지 않도록, 입력이 끝난 상태로 실행됨
 - 실행 파일이 없는 등 프로세스를 시작조차 못 하면 `IOException`을 던짐 (`CompilerRegistry`는 이걸 "설치 안 됨"으로 해석)
 
 #### `runDiscardingOutput(command, workDir, toolDir, timeout) : ProcessResult`

@@ -120,6 +120,7 @@ OS 차이를 `platform` 패키지에 모아둔 것과 같은 원칙으로, 언�
 | 소스 파일 이름 (`input.c`, `input.cpp`, `input.rs`)과 화면의 언어 이름 | `Language` (`application.yml`의 `language`) |
 | 최적화 레벨 목록 (`O0`~`O3`, `0`~`3`, `s`, `z`)과 화면의 열 제목·설명 | `Toolchain.levels()` (`OptLevel`) |
 | 코드 모양에 따른 컴파일 방식 (Rust의 프로그램/라이브러리) | `Toolchain.forSource()` |
+| 고른 컴파일 방식이 틀렸을 때 바로잡기 (Rust의 E0601) | `Toolchain.correctedBy()` |
 | 어셈블리·오브젝트·실행 파일을 만드는 인자 (`-S -O2 ...`) | `Toolchain`의 `codegenCommands()` / `executableArgs()` |
 | 설치 확인 방법과 "진짜 그 컴파일러인지" 판정 | `Toolchain.versionArgs()` / `versionMismatch()` |
 | 실행 시간을 믿을 수 없는 종료 코드 (Rust의 패닉) | `Toolchain.executionFailure()` |

@@ -2,7 +2,7 @@
 // Rust는 짧은 프로그램도 -O0에서 수만 줄이 나오므로 표를 무한정 키울 수 없다.
 export const MAX_DIFF_CELLS = 150_000_000
 
-// .file은 컴파일 단위의 이름이지 코드가 아니다. rustc는 -C incremental을 쓰면 이 이름이 레벨마다 달라진다.
+// .file은 컴파일 단위의 이름이지 코드가 아니다. rustc는 -C incremental을 쓰면 이 이름이 레벨마다 달라질 수 있다.
 const FILE_DIRECTIVE = /^\s*\.file\s/
 
 function comparableLine(line) {

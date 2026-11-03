@@ -7,15 +7,15 @@
 
 ### `diffLines(baseLines, targetLines) : { lineStates, addedCount, removedCount } | null`
 - **입력**: `baseLines`(기준이 되는 줄 배열, 보통 O0 어셈블리), `targetLines`(비교 대상 줄 배열).
-  `.file` 지시어는 내용과 상관없이 같은 줄로 봅니다. 코드가 아니라 컴파일 단위의 이름이고, rustc는 `-C incremental`을 쓰면 이 이름이 레벨마다 달라집니다
+  `.file` 지시어는 내용과 상관없이 같은 줄로 봅니다. 코드가 아니라 컴파일 단위의 이름이고, rustc는 `-C incremental`을 쓰면 이 이름이 레벨마다 달라질 수 있습니다
 - **알고리즘**: 앞뒤의 같은 줄을 덜어내고 남은 줄을 정수로 바꾼 뒤, LCS(최장 공통 부분 수열)를 DP 테이블(`Uint16Array`)로 계산하고 되짚어가며(backtrack)
   - `base[i] === target[j]`면 `'same'`
   - 아니고 `base`에서 삭제하는 게 유리하면(`dp[i+1][j] >= dp[i][j+1]`) `removedCount` 증가
   - 그 외에는 `target`에 새로 추가된 줄이므로 `'added'`
 - **출력**:
-  - `lineStates`: `target`의 각 줄에 대응하는 `'same' | 'added'` 배열 (인덱스가 `target` 줄 번호와 1:1 대응)
-  - `addedCount`: `target`에만 있는(새로 생기거나 바뀐) 줄 수
-  - `removedCount`: `base`에만 있고 `target`에는 없는(사라진) 줄 수
+  - `lineStates`: `targetLines`의 각 줄에 대응하는 `'same' | 'added'` 배열 (인덱스가 `targetLines` 줄 번호와 1:1 대응)
+  - `addedCount`: `targetLines`에만 있는(새로 생기거나 바뀐) 줄 수
+  - `removedCount`: `baseLines`에만 있고 `targetLines`에는 없는(사라진) 줄 수
   - 덜어낸 뒤의 표가 `MAX_DIFF_CELLS`(1억 5천만 칸, 약 300MB)를 넘으면 `null`
 - **복잡도**: O(n·m). Rust는 짧은 프로그램도 `opt-level=0`에서 수만 줄이 나오므로 표를 줄 수의 곱에 맞춰 무한정 키울 수 없습니다.
   `HashMap`을 쓰는 17줄 프로그램(16,767줄과 3,929줄 비교)은 한 쌍에 약 0.2초 걸립니다.
