@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
+import logo from './assets/logo-horizontal-dark.svg'
 import { diffLines } from './diff'
 import {
   FALLBACK_COMPILERS,
@@ -230,9 +231,11 @@ function App() {
   return (
     <div className="page">
       <header>
-        <h1>컴파일러 최적화 옵션 비교기</h1>
+        <h1 className="logo">
+          <img src={logo} alt="Optimeter" />
+        </h1>
         <p className="subtitle">
-          같은 코드를 최적화 레벨별로 컴파일해서 어셈블리와 바이너리 크기를 비교합니다.
+          -O0~-O3가 코드를 어떻게 바꾸는지 눈으로 보고, 숫자로 잽니다.
         </p>
       </header>
 

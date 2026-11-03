@@ -80,7 +80,7 @@ jobs:
       # 만든 jar를 띄워서 서버 하나가 화면과 API를 모두 내보내는지 확인한다
       - name: Smoke test the jar
         shell: bash
-        run: bash ../.github/scripts/smoke-test.sh target/compiler-opt-visualizer-*.jar
+        run: bash ../.github/scripts/smoke-test.sh target/optimeter-*.jar
 
   frontend-test:
     name: Frontend / ${{ matrix.os }}

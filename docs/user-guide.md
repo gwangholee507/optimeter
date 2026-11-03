@@ -1,6 +1,6 @@
 # 사용자 가이드
 
-이 문서는 **컴파일러 최적화 옵션 비교기**를 실제로 써보고 싶은 사람을 위한 안내서입니다.
+이 문서는 **Optimeter**(컴파일러 최적화 옵션 비교기)를 실제로 써보고 싶은 사람을 위한 안내서입니다.
 코드 구조가 아니라 "어떻게 실행하고, 화면을 어떻게 읽으면 되는지"에 초점을 맞췄습니다.
 (개발자용 코드 설명은 [backend.md](./backend.md), [frontend.md](./frontend.md) 참고)
 
@@ -91,9 +91,9 @@ Windows에는 C 컴파일러가 기본으로 들어 있지 않아서 직접 설�
 
 **방법 1 — jar 파일 내려받아 실행 (가장 간단)**
 
-[Releases](https://github.com/gwangholee507/compiler-opt-visualizer/releases) 페이지에서 `compiler-opt-visualizer-<버전>.jar`를 내려받고, 터미널에서 실행합니다.
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에서 `optimeter-<버전>.jar`를 내려받고, 터미널에서 실행합니다.
 ```bash
-java -jar compiler-opt-visualizer-<버전>.jar
+java -jar optimeter-<버전>.jar
 ```
 
 **방법 2 — 소스에서 바로 실행**
