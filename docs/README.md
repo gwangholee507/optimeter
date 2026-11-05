@@ -10,6 +10,7 @@
 | [user-guide.md](./user-guide.md) | **사용자 가이드** — 실행 방법, 화면 사용법, 결과 읽는 법, FAQ (코드 몰라도 됨) |
 | [architecture.md](./architecture.md) | 전체 흐름도 — 요청이 프론트엔드에서 백엔드까지 어떻게 흘러가는지 |
 | [optimization-levels.md](./optimization-levels.md) | 컴파일러 최적화 레벨(O0~O3, Rust의 opt-level) 차이점 정리 |
+| [rust.md](./rust.md) | Rust 지원 — 설치와 탐지, 코드를 컴파일하는 방식과 그렇게 정한 이유, C/C++과 다른 점, 검증한 범위 |
 | [differentiation.md](./differentiation.md) | 비슷한 도구(Compiler Explorer 등)와 비교한 차별점, 향후 발전 방향 |
 | [backend.md](./backend.md) | Spring Boot 백엔드의 클래스/함수별 설명 |
 | [frontend.md](./frontend.md) | React 프론트엔드의 컴포넌트/함수별 설명 |

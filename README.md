@@ -137,6 +137,7 @@ cd frontend && npm test
 | 문서 | 내용 |
 |---|---|
 | [docs/user-guide.md](docs/user-guide.md) | **사용자 가이드** — 실행 방법, 화면 사용법, 결과 읽는 법, FAQ (코드 몰라도 됨) |
+| [docs/rust.md](docs/rust.md) | Rust 지원 — 코드를 컴파일하는 방식, C/C++과 다른 점, 제한 사항 |
 | [docs/architecture.md](docs/architecture.md) | 요청이 프론트엔드 → 백엔드 → clang까지 어떻게 흘러가는지 전체 흐름도 |
 | [docs/backend.md](docs/backend.md) | Spring Boot 백엔드 클래스/함수별 설명 |
 | [docs/frontend.md](docs/frontend.md) | React 프론트엔드 컴포넌트/함수별 설명 |
@@ -154,6 +155,7 @@ cd frontend && npm test
 ## 참고 자료
 
 - [Clang 공식 문서 — 최적화 옵션](https://clang.llvm.org/docs/CommandGuide/clang.html) — `-O0`~`-O3`이 실제로 어떤 옵션 집합인지
+- [rustc 코드 생성 옵션](https://doc.rust-lang.org/rustc/codegen-options/index.html) — Rust의 `-C opt-level`이 받는 값과 다른 옵션들
 - [Compiler Explorer (godbolt.org)](https://godbolt.org/) — 더 다양한 컴파일러/아키텍처로 어셈블리를 비교하고 싶다면
 - [LLVM 최적화 파이프라인 개요](https://llvm.org/docs/Passes.html) — clang이 내부적으로 어떤 최적화 패스를 거치는지 더 깊게 알고 싶다면
 
