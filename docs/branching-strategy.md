@@ -25,7 +25,17 @@
    - 머지 방식은 **Squash merge**를 기본으로 합니다 (커밋 히스토리를 깔끔하게 유지).
 
 4. **머지 후 브랜치는 삭제합니다.**
-   - GitHub PR 머지 시 "Delete branch" 옵션을 사용합니다.
+   - 원격 브랜치는 PR이 머지되면 GitHub가 자동으로 삭제합니다
+     (아래 [저장소 설정](#머지-후-브랜치-자동-삭제-github-settings) 참고). "Delete branch" 버튼을 따로 누르지 않아도 됩니다.
+   - 로컬 브랜치는 자동으로 지워지지 않으므로 직접 지웁니다.
+     ```
+     git switch main
+     git pull --prune
+     git branch -D <브랜치 이름>
+     ```
+     Squash merge는 브랜치의 커밋을 새 커밋 하나로 합쳐 넣기 때문에, Git은 원래 브랜치가 머지됐다고 알아보지 못합니다.
+     그래서 `-d`로는 지워지지 않고 `-D`가 필요합니다. 지우기 전에 PR이 머지됐는지 꼭 확인하세요.
+     `--prune`은 GitHub에서 지워진 원격 브랜치의 추적 정보(`origin/<브랜치 이름>`)도 함께 정리합니다.
 
 5. **머지되면 곧 배포 가능한 상태입니다.**
    - 지금은 수동 배포/로컬 실행 단계지만, 나중에 자동 배포를 붙이더라도
@@ -48,6 +58,17 @@ GitHub 저장소 설정에서 브랜치 보호 규칙을 켜야 합니다. 아�
 - ☑ Require status checks to pass before merging → CI 워크플로 선택
 - ☑ Require branches to be up to date before merging
 - (협업 인원이 늘면) ☑ Require approvals — 최소 1명
+
+## 머지 후 브랜치 자동 삭제 (GitHub Settings)
+
+"머지 후 브랜치 삭제" 규칙 중 원격 브랜치 삭제는 저장소 설정으로 자동화되어 있습니다 (켜져 있음).
+
+**Settings → General → Pull Requests**
+
+- ☑ Automatically delete head branches
+
+이 설정은 원격 브랜치만 지웁니다. 로컬 브랜치는 위 규칙 4처럼 직접 지웁니다.
+삭제된 브랜치는 PR 화면의 "Restore branch" 버튼으로 되살릴 수 있습니다.
 
 ## 요약 흐름
 
