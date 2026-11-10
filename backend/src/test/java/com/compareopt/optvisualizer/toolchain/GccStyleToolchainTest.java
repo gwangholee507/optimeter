@@ -31,9 +31,12 @@ class GccStyleToolchainTest {
     void 어셈블리_오브젝트_실행파일_인자를_GCC식으로_만든다() {
         OptLevel o2 = clang.levels().get(2);
 
-        // 첫 번째 명령이 어셈블리, 두 번째 명령이 오브젝트 파일을 만든다
+        // 첫 번째 명령이 어셈블리(와 최적화 remark), 두 번째 명령이 오브젝트 파일을 만든다
         assertThat(clang.codegenCommands(o2, "input.c", "out-O2.s", "out-O2.o")).containsExactly(
-                List.of("-S", "-O2", "input.c", "-o", "out-O2.s"),
+                List.of("-S", "-O2", "-Rpass=.*", "-Rpass-missed=.*", "input.c", "-o", "out-O2.s"),
+                List.of("-c", "-O2", "input.c", "-o", "out-O2.o"));
+        assertThat(gcc.codegenCommands(o2, "input.c", "out-O2.s", "out-O2.o")).containsExactly(
+                List.of("-S", "-O2", "-fopt-info-optimized-missed", "input.c", "-o", "out-O2.s"),
                 List.of("-c", "-O2", "input.c", "-o", "out-O2.o"));
         assertThat(clang.executableArgs(o2, "input.cpp", "out-O2.exe"))
                 .containsExactly("-O2", "input.cpp", "-o", "out-O2.exe");
@@ -45,6 +48,22 @@ class GccStyleToolchainTest {
         // C는 계산 결과를 main의 반환값으로 쓰는 코드가 흔해서 0이 아닌 종료 코드도 정상 실행으로 본다
         assertThat(clang.executionFailure(1)).isEmpty();
         assertThat(clang.assemblyNotice("")).isEmpty();
+    }
+
+    @Test
+    void 어셈블리_명령의_출력에서_컴파일러에_맞는_형식으로_remark를_읽는다() {
+        assertThat(clang.remarks("input.c:3:5: remark: vectorized loop [-Rpass=loop-vectorize]\n", "input.c"))
+                .hasValueSatisfying(remarks -> assertThat(remarks).extracting(OptRemark::pass)
+                        .containsExactly("loop-vectorize"));
+        assertThat(gcc.remarks("input.c:3:5: optimized: loop vectorized using 16 byte vectors\n", "input.c"))
+                .hasValueSatisfying(remarks -> assertThat(remarks).extracting(OptRemark::topicLabel)
+                        .containsExactly("루프 벡터화"));
+    }
+
+    @Test
+    void remark가_하나도_없으면_빈_목록이다() {
+        // remark를 내지 않는 컴파일러(empty)와 달리, 화면이 "기록 없음"을 보여줄 수 있어야 한다
+        assertThat(clang.remarks("", "input.c")).hasValue(List.of());
     }
 
     @Test

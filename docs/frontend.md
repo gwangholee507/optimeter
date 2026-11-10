@@ -48,6 +48,21 @@
 
 ---
 
+## `remarks.js`
+**파일**: [`frontend/src/remarks.js`](../frontend/src/remarks.js)
+
+서버가 준 최적화 remark(`result.remarks`)를 화면에 보여주기 위한 순수 함수 모음. `remarks.test.js`로 테스트합니다.
+remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backend.md의 `RemarkFormat`](./backend.md#remarkformat-enum)),
+여기서는 세고 고르기만 합니다.
+
+- `REMARK_KIND_LABEL`: `kind`를 화면 표기로 바꾸는 표 (`APPLIED` → "적용", `MISSED` → "놓침")
+- `summarizeRemarks(remarks) : { applied, missed }`: 적용된 것과 놓친 것의 건수. 서버가 하나로 합친 remark는
+  `count`와 상관없이 한 건으로 셈
+- `remarkTopic(remark) : string | null`: remark 앞에 붙일 종류 이름. `topicLabel`(한국어 이름)이 있으면 그것을,
+  없으면 `pass`(컴파일러의 패스 이름)를, 둘 다 없으면(GCC의 일부 remark) `null`
+
+---
+
 ## `App.jsx`
 **파일**: [`frontend/src/App.jsx`](../frontend/src/App.jsx)
 
@@ -88,6 +103,15 @@
 - 컴파일에 실패한 레벨은 비교할 어셈블리가 없으므로 버튼을 `disabled`로 막음
 - 누르면 `onSelect(level)`로 그 레벨 id를 올려보냄 (`App`의 `setBaseLevel`)
 
+### `RemarkPanel({ remarks, omittedCount })` (컴포넌트)
+컬럼 안에서 열 제목과 어셈블리 사이에 놓이는 "최적화 기록" 영역. 컴파일러가 그 레벨에서 남긴 remark를 보여줍니다.
+- `remarks`가 `null`이면(remark를 내지 않는 rustc) 아무것도 그리지 않음
+- `<details open>`이라 처음에는 펼쳐져 있고, 제목 줄을 누르면 접힘. 제목 줄에는 `summarizeRemarks()`의 "적용 N · 놓침 M"을 표시
+- 항목마다 초록색 "적용" / 노란색 "놓침", 소스 줄 번호(`7행`), 종류 이름(`remarkTopic()`), 컴파일러의 원문 메시지를 표시.
+  `topicDescription`이 있으면 종류 이름에 점선 밑줄을 긋고 `title`로 설명을 붙임. `count`가 2 이상이면 메시지 뒤에 `×2`
+- 목록은 높이를 제한하고 안에서 스크롤함 (레벨마다 건수가 달라도 어셈블리가 너무 아래로 밀리지 않게)
+- `remarks`가 빈 배열이면 "이 레벨에서 컴파일러가 남긴 기록이 없습니다.", `omittedCount`가 있으면 생략한 건수를 표시
+
 ### `OptimizationColumn({ result, base })` (컴포넌트)
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과입니다
 (기본은 응답의 첫 번째 레벨, `BaseLevelSelector`로 고르면 그 레벨).
@@ -101,6 +125,7 @@ diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준�
 - 측정을 시도했지만 실패했으면(주로 `main()` 없음, Rust는 패닉으로 끝난 경우도 포함) `executionError`를 툴팁으로 붙인
   회색 "⏱ 실행 불가" 배지를 대신 표시 — 컴파일 자체는 성공이므로 에러로 취급하지 않음
 - `result.notice`가 있으면 어셈블리 위에 노란색 안내 문구를 표시 (예: Rust에서 어셈블리에 함수가 없는 이유)
+- 컴파일에 성공했으면 어셈블리 위에 `RemarkPanel`(`result.remarks`, `result.omittedRemarkCount`)을 표시
 - 컴파일 실패 시 헤더에 빨간 "컴파일 실패" 배지를 띄우고, 본문에는
   `"⚠ {compilerLabel}가 이 코드를 컴파일하지 못했습니다"` 안내와 함께 `errorMessage`(정리된 컴파일러 stderr)를 표시
 
@@ -154,6 +179,7 @@ diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준�
 4. `results`가 있으면:
    - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
    - `BaseLevelSelector`("비교 기준" 버튼 그룹)
+   - `remarks`가 있는 결과가 하나라도 있으면 "최적화 기록"의 적용/놓침/줄 번호가 무엇인지 한 줄 안내
    - `base`(기본은 `results[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 각 결과를 `OptimizationColumn`으로 렌더링
 
 ---

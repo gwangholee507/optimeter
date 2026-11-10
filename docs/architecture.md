@@ -22,14 +22,15 @@
    │  6. Toolchain이 정한 레벨(clang/gcc는 O0~O3, rustc는 0~3, s, z) 각각에 대해 runOneLevel() 반복 호출
    │       (컴파일러 실행은 전부 platform.ProcessRunner를 거침 — 임시 디렉터리를 작업 디렉터리로 두고 실행)
    │       (인자는 Toolchain이 만듦 — 아래는 clang/gcc 기준, rustc는 어셈블리와 오브젝트 파일을 한 번에 만듦)
-   │       - {compiler} -S -O{n} → 어셈블리(.s) 생성
+   │       - {compiler} -S -O{n} → 어셈블리(.s) 생성. clang/gcc는 remark 인자를 함께 넘겨서
+   │         "이 줄에서 무슨 최적화를 했다/못 했다"는 기록(remark)을 출력으로 받음
    │       - {compiler} -c -O{n} → 오브젝트 파일(.o) 생성 (크기 비교용)
    │       - runBenchmark=true면 {compiler} -O{n} → 실행 파일(.exe) 링크 후 5회 실행,
    │         최솟값을 실행 시간으로 채택 (main() 없어서 링크 실패하면 조용히 건너뜀)
    │  7. 임시 디렉터리 정리
    ▼
 [backend] List<OptimizationResult> 를 JSON으로 응답
-   │       (레벨 id·열 제목·설명, 컴파일러 id/label, 실행 시간 포함 — 레벨 정보는 Toolchain이 정함)
+   │       (레벨 id·열 제목·설명, 컴파일러 id/label, 최적화 remark, 실행 시간 포함 — 레벨 정보와 remark는 Toolchain이 정함)
    ▼
 [frontend/src/App.jsx] setResults(data)
    │  8. 첫 번째 결과(clang/gcc는 -O0)를 기준(baseline)으로 삼아
@@ -39,7 +40,7 @@
    │  9. diff.js 의 diffLines() 로 기준 레벨 대비 달라진 줄 계산
    ▼
 [화면] 레벨별 컬럼을 나란히 렌더링 (열 제목과 ⓘ 설명은 응답에 담긴 값 그대로),
-       바뀐 줄은 초록색 하이라이트, 실행 시간은 ⏱ 배지로 표시
+       열마다 컴파일러가 남긴 최적화 기록(적용/놓침), 바뀐 줄은 초록색 하이라이트, 실행 시간은 ⏱ 배지로 표시
 ```
 
 ## 화면과 API는 어떻게 한 서버에서 나오나요?
@@ -126,6 +127,7 @@ OS 차이를 `platform` 패키지에 모아둔 것과 같은 원칙으로, 언�
 | 설치 확인 방법과 "진짜 그 컴파일러인지" 판정 | `Toolchain.versionArgs()` / `versionMismatch()` |
 | 실행 시간을 믿을 수 없는 종료 코드 (Rust의 패닉) | `Toolchain.executionFailure()` |
 | 결과에 붙일 안내 문구 (Rust의 빈 어셈블리) | `Toolchain.assemblyNotice()` |
+| 최적화 remark를 내게 하는 인자와 그 출력을 읽는 방법 (clang의 `-Rpass`, GCC의 `-fopt-info`, rustc는 없음) | `Toolchain.remarks()` (`RemarkFormat`, `OptRemark`) |
 
 어떤 `Toolchain` 구현을 쓸지는 `application.yml`의 `toolchain` 값(`ToolchainKind`)으로 정합니다.
 clang/gcc와 C++의 clang++/g++는 GCC식 명령줄을 쓰는 `GccStyleToolchain` 하나를 공유하고, rustc는 `RustcToolchain`을 씁니다.

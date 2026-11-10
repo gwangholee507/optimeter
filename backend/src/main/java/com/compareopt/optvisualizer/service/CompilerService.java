@@ -45,6 +45,8 @@ public class CompilerService {
     private static final long EXECUTION_TIMEOUT_SECONDS = 5;
     private static final int BENCHMARK_RUNS = 5;
     private static final int LINK_ERROR_DETAIL_MAX_CHARS = 1000;
+    // 함수가 수백 개인 코드는 인라이닝 remark만으로 수천 개가 된다. 화면에서 읽을 수 있는 양만 보낸다.
+    static final int MAX_REMARKS_PER_LEVEL = 200;
     private static final int CLEANUP_ATTEMPTS = 3;
     private static final long CLEANUP_RETRY_DELAY_MS = 100;
 
@@ -121,7 +123,7 @@ public class CompilerService {
         String objName = "out-" + level.id() + ".o";
         List<List<String>> commands = toolchain.codegenCommands(level, sourceName, asmName, objName);
 
-        // 1) 어셈블리 생성 (예: {compiler} -S -O{n} input.c -o out.s)
+        // 1) 어셈블리 생성 (예: {compiler} -S -O{n} input.c -o out.s). 최적화 remark도 이 명령이 함께 출력한다.
         ProcessResult asmResult = runCompiler(workDir, compiler, commands.get(0));
         long elapsed = System.currentTimeMillis() - start;
 
@@ -159,6 +161,11 @@ public class CompilerService {
         long totalElapsed = System.currentTimeMillis() - start;
         OptimizationResult result = OptimizationResult.success(level, assembly, binarySize, totalElapsed);
         toolchain.assemblyNotice(assembly).ifPresent(result::setNotice);
+        // remark는 어셈블리를 만든 바로 그 명령의 출력에서 읽는다
+        toolchain.remarks(asmResult.output(), sourceName).ifPresent(remarks -> {
+            int shown = Math.min(remarks.size(), MAX_REMARKS_PER_LEVEL);
+            result.setRemarks(List.copyOf(remarks.subList(0, shown)), remarks.size() - shown);
+        });
 
         if (runBenchmark) {
             ExecutionOutcome outcome = benchmarkExecution(workDir, level, compiler, toolchain);

@@ -5,9 +5,11 @@ import com.compareopt.optvisualizer.dto.OptimizationResult;
 import com.compareopt.optvisualizer.platform.ProcessResult;
 import com.compareopt.optvisualizer.platform.ProcessRunner;
 import com.compareopt.optvisualizer.toolchain.Language;
+import com.compareopt.optvisualizer.toolchain.OptRemark;
 import com.compareopt.optvisualizer.toolchain.ToolchainKind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -36,6 +38,18 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * (RequiredCompilers 참고).
  */
 class CompilerServiceTest {
+
+    // static이라 O2에서 반드시 인라인되고, 5번째 줄에 호출이 하나만 있어서 remark의 줄 번호를 확인할 수 있다
+    private static final String INLINING_CODE = """
+            static int square(int x) { return x * x; }
+            int sum_loop(int n) {
+                int total = 0;
+                for (int i = 0; i < n; i++) {
+                    total += square(i);
+                }
+                return total;
+            }
+            """;
 
     private CompilerService compilerService;
     private CompilerRegistry registry;
@@ -183,6 +197,80 @@ class CompilerServiceTest {
         });
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"clang", "gcc"})
+    void 레벨마다_컴파일러가_남긴_최적화_remark가_담긴다(String compilerId) {
+        RequiredCompilers.assumeAvailable(registry, compilerId);
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(INLINING_CODE, compilerId, false);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            // remark가 없는 레벨도 null이 아니라 빈 목록이다 (화면이 "기록 없음"을 보여준다)
+            assertThat(r.getRemarks()).isNotNull();
+            assertThat(r.getOmittedRemarkCount()).isZero();
+        });
+        // O0는 인라이닝을 하지 않는다
+        assertThat(results.get(0).getRemarks()).noneMatch(CompilerServiceTest::isAppliedInlining);
+        // O2는 5번째 줄의 square(i) 호출을 인라인하고, 그 사실을 줄 번호와 함께 알려준다
+        assertThat(results.get(2).getRemarks()).anySatisfy(remark -> {
+            assertThat(isAppliedInlining(remark)).isTrue();
+            assertThat(remark.line()).isEqualTo(5);
+            assertThat(remark.topicDescription()).isNotBlank();
+            assertThat(remark.message()).contains("square");
+            assertThat(remark.count()).isPositive();
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"clang", "gcc"})
+    void remark를_내게_하는_인자는_어셈블리를_바꾸지_않는다(String compilerId, @TempDir Path tempDir) throws Exception {
+        // 화면의 어셈블리는 remark 인자를 붙인 명령으로 만든다. 인자 때문에 코드가 달라지면 크기를 재는 오브젝트 파일
+        // (remark 인자 없이 만든다)과 어긋나므로, 인자 없이 직접 컴파일한 결과와 같은지 확인한다.
+        RequiredCompilers.assumeAvailable(registry, compilerId);
+        CompilerRegistry.ResolvedCompiler compiler = registry.resolve(compilerId);
+        Files.writeString(tempDir.resolve("input.c"), INLINING_CODE);
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(INLINING_CODE, compilerId, false);
+
+        for (OptimizationResult result : results) {
+            String asmName = "plain-" + result.getLevel() + ".s";
+            ProcessResult plain = new ProcessRunner().run(
+                    List.of(compiler.path(), "-S", "-" + result.getLevel(), "input.c", "-o", asmName),
+                    tempDir, compiler.toolDir(), Duration.ofSeconds(60));
+            assertThat(plain.succeeded()).as(plain.output()).isTrue();
+            assertThat(result.getAssembly()).as(result.getLevelLabel())
+                    .isEqualTo(ProcessRunner.normalizeNewlines(Files.readString(tempDir.resolve(asmName))));
+        }
+    }
+
+    @Test
+    void remark가_너무_많으면_앞에서부터_정해진_개수만_담고_나머지는_개수만_알려준다() {
+        // 줄마다 square 호출이 하나씩 있어서 O2에서 인라이닝 remark가 줄 수만큼 나온다
+        int callers = CompilerService.MAX_REMARKS_PER_LEVEL + 50;
+        StringBuilder code = new StringBuilder("static int square(int x) { return x * x; }\n");
+        for (int i = 0; i < callers; i++) {
+            code.append("int caller").append(i).append("(int x) { return square(x) + ").append(i).append("; }\n");
+        }
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code.toString(), "clang", false);
+
+        OptimizationResult o2 = results.get(2);
+        assertThat(o2.isSuccess()).as(o2.getErrorMessage()).isTrue();
+        assertThat(o2.getRemarks()).hasSize(CompilerService.MAX_REMARKS_PER_LEVEL);
+        assertThat(o2.getOmittedRemarkCount()).isGreaterThanOrEqualTo(50);
+        // 소스 줄 순서라서 앞쪽 줄의 remark가 남는다
+        assertThat(o2.getRemarks().get(0).line()).isEqualTo(2);
+    }
+
+    @Test
+    void 컴파일에_실패한_레벨에는_remark가_없다() {
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(
+                "int f(int x) { retrun x + ; }", "clang", false);
+
+        assertThat(results).allSatisfy(r -> assertThat(r.getRemarks()).isNull());
+    }
+
     @Test
     void PATH의_이름이_아니라_절대_경로로_지정한_컴파일러로도_컴파일과_실행이_된다() {
         // OPTVIS_CLANG 환경 변수나 Windows의 기본 설치 위치(C:\msys64\..., C:\Program Files\LLVM\...)처럼
@@ -320,6 +408,8 @@ class CompilerServiceTest {
             assertThat(r.getAssembly()).doesNotContain("\r");
             assertThat(r.getBinarySizeBytes()).isGreaterThan(0);
             assertThat(r.getNotice()).isNull();
+            // rustc는 remark를 내지 않는 계열이라 빈 목록이 아니라 null이다 (화면이 remark 영역을 그리지 않는다)
+            assertThat(r.getRemarks()).isNull();
         });
     }
 
@@ -516,6 +606,10 @@ class CompilerServiceTest {
             assertThat(r.getErrorMessage()).contains("input.rs");
             assertThat(r.getErrorMessage()).doesNotContain("opt-visualizer-");
         });
+    }
+
+    private static boolean isAppliedInlining(OptRemark remark) {
+        return remark.kind() == OptRemark.Kind.APPLIED && "함수 인라이닝".equals(remark.topicLabel());
     }
 
     private static CompilerProperties.Option option(String id, String label, Language language,
