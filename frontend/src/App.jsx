@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import logo from './assets/logo-horizontal-dark.svg'
+import { filterAssembly } from './assemblyFilter'
 import { diffLines } from './diff'
 import {
   FALLBACK_COMPILERS,
@@ -27,13 +28,17 @@ function formatMs(ms) {
   return `${ms.toFixed(2)}ms`
 }
 
-function InfoTooltip({ text }) {
+// align="end"면 말풍선을 아이콘의 오른쪽 끝에 맞춰 왼쪽으로 펼친다 (화면 오른쪽 끝에 있는 아이콘용)
+function InfoTooltip({ text, align }) {
   return (
     <span className="info-tooltip" tabIndex={0}>
       <span className="info-icon" aria-hidden="true">
         ⓘ
       </span>
-      <span className="tooltip-bubble" role="tooltip">
+      <span
+        className={align === 'end' ? 'tooltip-bubble tooltip-bubble-end' : 'tooltip-bubble'}
+        role="tooltip"
+      >
         {text}
       </span>
     </span>
@@ -137,6 +142,19 @@ function RemarkPanel({ remarks, omittedCount }) {
   )
 }
 
+// 켜져 있으면 어셈블리에서 지시어처럼 코드가 아닌 줄을 숨긴다. 다시 컴파일하지 않고 화면에서만 바뀐다.
+function DirectiveFilterToggle({ checked, onChange }) {
+  return (
+    <label className="option-toggle">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      지시어 숨기기
+      <InfoTooltip
+        align="end"
+        text="어셈블러에게 주는 지시(.cfi_startproc, .p2align, .section 같은 줄), 주석만 있는 줄, 그런 지시에서만 쓰는 내부 레이블, 디버그 정보와 예외 처리 표를 숨기고 실제로 실행되는 명령어와 데이터만 보여줍니다. 바뀐 줄 강조와 (+추가 / -삭제) 배지도 남은 줄만으로 계산합니다. 오브젝트 크기는 그대로입니다." />
+    </label>
+  )
+}
+
 // base: 비교 기준이 되는 결과 (기본값은 서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
 // 에디터에 글자를 칠 때마다 App이 다시 그려진다. 어셈블리가 수만 줄이면 diff가 오래 걸리므로
 // memo와 useMemo로 결과가 바뀔 때만 계산한다.
@@ -206,6 +224,8 @@ function App() {
   const [results, setResults] = useState(null)
   // 비교 기준으로 고른 레벨 id. null이면 서버가 준 첫 번째 레벨을 기준으로 삼는다
   const [baseLevel, setBaseLevel] = useState(null)
+  // 다시 비교해도 유지한다 (사용자가 끈 상태로 계속 보고 싶을 수 있다)
+  const [hideDirectives, setHideDirectives] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -217,7 +237,16 @@ function App() {
   const languages = groupByLanguage(compilers)
   const currentLanguage = languages.find((l) => l.id === language) ?? languages[0]
   const sampleCode = SAMPLE_CODE[currentLanguage.id] ?? ''
-  const base = results?.find((r) => r.level === baseLevel) ?? results?.[0]
+  // 화면과 diff에 쓰는 결과. 지시어를 숨기면 어셈블리만 걸러낸 사본이 된다.
+  // 결과나 필터가 바뀔 때만 새로 만들어야 OptimizationColumn의 memo가 글자를 칠 때마다 diff를 다시 하지 않는다.
+  const shownResults = useMemo(
+    () =>
+      hideDirectives && results
+        ? results.map((r) => (r.success ? { ...r, assembly: filterAssembly(r.assembly) } : r))
+        : results,
+    [results, hideDirectives],
+  )
+  const base = shownResults?.find((r) => r.level === baseLevel) ?? shownResults?.[0]
 
   useEffect(() => {
     // 목록을 받지 못하면 FALLBACK_COMPILERS를 그대로 둬서 화면이 깨지지 않게 한다
@@ -326,7 +355,7 @@ function App() {
             </select>
           </label>
 
-          <label className="benchmark-toggle">
+          <label className="option-toggle">
             <input
               type="checkbox"
               checked={runBenchmark}
@@ -352,13 +381,16 @@ function App() {
         {error && <p className="error-message">⚠ {error}</p>}
       </section>
 
-      {results && results.length > 0 && (
+      {shownResults && shownResults.length > 0 && (
         <section className="results-section-wrap">
           <p className="results-meta">
-            {results[0].compilerLabel || selectedCompiler} 기준 비교 결과
+            {shownResults[0].compilerLabel || selectedCompiler} 기준 비교 결과
           </p>
-          <BaseLevelSelector results={results} base={base} onSelect={setBaseLevel} />
-          {results.some((r) => r.remarks != null) && (
+          <div className="results-toolbar">
+            <BaseLevelSelector results={shownResults} base={base} onSelect={setBaseLevel} />
+            <DirectiveFilterToggle checked={hideDirectives} onChange={setHideDirectives} />
+          </div>
+          {shownResults.some((r) => r.remarks != null) && (
             <p className="remark-help">
               열마다 있는 <strong>최적화 기록</strong>은 컴파일러가 그 레벨에서 직접 남긴 것입니다.{' '}
               <span className="remark-applied">적용</span>은 실제로 한 최적화,{' '}
@@ -367,7 +399,7 @@ function App() {
             </p>
           )}
           <div className="results-section">
-            {results.map((r) => (
+            {shownResults.map((r) => (
               <OptimizationColumn key={r.level} result={r} base={base} />
             ))}
           </div>
