@@ -54,4 +54,12 @@ curl -fsS -X POST "$BASE/api/compile" \
 grep -q '"success":true' smoke-compile.json || fail "컴파일 결과가 성공이 아님: $(cat smoke-compile.json)"
 echo "✅ API: /api/compile"
 
+# 4) 낯선 이름(Host)으로 온 요청은 거부해야 한다 (DNS 리바인딩 방어, HostHeaderFilter)
+STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/compile" \
+    -H 'Host: evil.example' \
+    -H 'Content-Type: application/json' \
+    -d '{"code":"int square(int x) { return x * x; }","compiler":"clang"}')"
+[ "$STATUS" = "403" ] || fail "낯선 Host의 요청이 거부되지 않음 (HTTP $STATUS)"
+echo "✅ 보안: 낯선 Host는 403"
+
 echo "스모크 테스트 통과"
