@@ -32,7 +32,10 @@
    │       (레벨 id·열 제목·설명, 컴파일러 id/label, 실행 시간 포함 — 레벨 정보는 Toolchain이 정함)
    ▼
 [frontend/src/App.jsx] setResults(data)
-   │  8. 첫 번째 결과(clang/gcc는 -O0)를 기준(baseline)으로 삼아
+   │  8. "지시어 숨기기"가 켜져 있으면(기본값) assemblyFilter.js 의 filterAssembly() 로
+   │     .cfi_*, .section 같은 지시어와 디버그·예외 처리 섹션을 걸러낸 사본(shownResults)을 만듦
+   │     (끄고 켜도 다시 컴파일하지 않음)
+   │     첫 번째 결과(clang/gcc는 -O0)를 기준(baseline)으로 삼아
    │     ("비교 기준" 버튼으로 다른 레벨을 고르면 그 레벨이 기준 — 다시 컴파일하면 첫 레벨로 돌아감)
    ▼
 [frontend/src/OptimizationColumn + AssemblyView]

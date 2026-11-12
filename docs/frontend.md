@@ -7,7 +7,9 @@
 
 ### `diffLines(baseLines, targetLines) : { lineStates, addedCount, removedCount } | null`
 - **입력**: `baseLines`(기준이 되는 줄 배열, 기본은 O0 어셈블리이고 화면에서 고른 비교 기준 레벨), `targetLines`(비교 대상 줄 배열).
+  "지시어 숨기기"가 켜져 있으면 `filterAssembly()`로 걸러낸 뒤의 줄이 들어옵니다.
   `.file` 지시어는 내용과 상관없이 같은 줄로 봅니다. 코드가 아니라 컴파일 단위의 이름이고, rustc는 `-C incremental`을 쓰면 이 이름이 레벨마다 달라질 수 있습니다
+  (지시어를 숨기면 `.file` 줄 자체가 빠지므로 "지시어 숨기기"를 끈 경우에만 의미가 있습니다)
 - **알고리즘**: 앞뒤의 같은 줄을 덜어내고 남은 줄을 정수로 바꾼 뒤, LCS(최장 공통 부분 수열)를 DP 테이블(`Uint16Array`)로 계산하고 되짚어가며(backtrack)
   - `base[i] === target[j]`면 `'same'`
   - 아니고 `base`에서 삭제하는 게 유리하면(`dp[i+1][j] >= dp[i][j+1]`) `removedCount` 증가
@@ -19,6 +21,41 @@
   - 덜어낸 뒤의 표가 `MAX_DIFF_CELLS`(1억 5천만 칸, 약 300MB)를 넘으면 `null`
 - **복잡도**: O(n·m). Rust는 짧은 프로그램도 `opt-level=0`에서 수만 줄이 나오므로 표를 줄 수의 곱에 맞춰 무한정 키울 수 없습니다.
   `HashMap`을 쓰는 17줄 프로그램(16,767줄과 3,929줄 비교)은 한 쌍에 약 0.2초 걸립니다.
+
+---
+
+## `assemblyFilter.js`
+**파일**: [`frontend/src/assemblyFilter.js`](../frontend/src/assemblyFilter.js)
+
+어셈블리에서 실행되는 명령어와 데이터만 남기고, 어셈블러·링커에게 주는 정보처럼 사람이 읽을 필요가 없는 줄을 걸러내는 순수 함수.
+화면의 "지시어 숨기기" 체크박스(기본값 켜짐)가 이 함수를 씁니다. `assemblyFilter.test.js`로 테스트합니다.
+
+### `filterAssembly(assembly) : string`
+- **입력**: 어셈블리 텍스트 한 덩어리 (`OptimizationResult.assembly`)
+- **출력**: 남길 줄만 원래 순서대로 `\n`으로 이은 텍스트. 남긴 줄의 내용(들여쓰기, 줄 끝 주석)은 바꾸지 않습니다
+- **숨기는 줄**
+  - 지시어(`.`으로 시작하는 줄)와 `@feat.00 = 0` 같은 기호 정의 — `.cfi_*`, `.p2align`, `.globl`, `.section`, `.loc`, `.seh_*`, `.def` 등
+  - 주석만 있는 줄과 빈 줄 — 주석 기호는 x86의 `#`, Apple arm64의 `;`, Linux arm64의 `//`
+  - 아무 명령어나 데이터도 가리키지 않는 **내부 레이블** — `.Lfunc_end0:`(`.size`에서만 씀), `Lloh0:`(`.loh`에서만 씀) 등.
+    ELF와 COFF는 `.L`로 시작하는 레이블, Mach-O(macOS)는 `L`이나 `l`로 시작하는 레이블이 내부 레이블입니다.
+    Mach-O인지는 `.subsections_via_symbols`, `.build_version` 같은 macOS 전용 지시어가 있는지로 판단합니다
+    (Linux는 사용자 함수 이름이 `_` 없이 나오므로 `lerp:` 같은 함수를 내부 레이블로 오인하지 않도록)
+  - 숨긴 내부 레이블에 딸린 데이터
+  - 디버그 정보(`.debug*`, `__DWARF`), 예외 처리 표(`.gcc_except_table`, `__gcc_except_tab`), 되감기 정보(`.eh_frame`, `.xdata`, `.pdata`,
+    `__compact_unwind`), `.note*`, `.comment`, `.llvm_addrsig` 섹션의 내용 전체.
+    섹션은 `.section`, `.pushsection`/`.popsection`, `.previous`, `.text`/`.data`/`.cstring` 같은 짧은 지시어로 추적합니다
+- **남기는 줄**
+  - 명령어, 그리고 `레이블: 명령어`처럼 한 줄에 쓴 명령어
+  - 내부 레이블이 아닌 레이블(함수 이름, 전역 변수 이름)과, 남은 명령어나 데이터가 이름을 쓰는 내부 레이블
+  - 데이터를 만드는 지시어(`.byte`, `.long`, `.quad`, `.ascii`, `.asciz`, `.string`, `.zero`, `.space` 등) — 상수 문자열이나 전역 변수의 값이라서.
+    단, 같은 섹션에서 바로 앞의 레이블을 숨겼으면 함께 숨깁니다
+  - 레이블 없이 변수를 정의하는 `.comm`, `.lcomm`, `.zerofill`, `.tbss`
+- **반복 계산**: 데이터가 다른 데이터의 레이블을 가리킬 수 있어서(예: 문자열 포인터 표 `names.rel`이 `.L.str`을 가리킴),
+  남긴 데이터가 쓰는 이름을 모으고 → 그 이름의 레이블과 데이터를 남기는 일을 더 늘지 않을 때까지 반복합니다
+- **시간**: `HashMap`을 쓰는 Rust 프로그램의 `opt-level=0`(15,839줄 → 11,180줄)이 약 30ms
+
+clang, GCC, rustc 모두 GNU 어셈블러 문법으로 내놓으므로 컴파일러별 분기 없이 하나의 규칙으로 macOS(Mach-O), Linux(ELF),
+Windows(COFF, MSVC/MinGW) 출력을 다룹니다. 테스트에는 각 형식의 실제 출력을 줄여서 넣었습니다.
 
 ---
 
@@ -59,10 +96,13 @@
 - 최적화 레벨의 이름과 설명은 프론트엔드에 두지 않습니다. 백엔드가 결과마다 `levelLabel`, `levelDescription`으로
   보내주므로, 레벨이 다른 언어가 추가돼도 화면을 고칠 필요가 없습니다.
 
-### `InfoTooltip({ text })` (컴포넌트)
+### `InfoTooltip({ text, align })` (컴포넌트)
 컬럼 헤더의 ⓘ 아이콘. 마우스 호버 또는 `tabIndex={0}`을 통한 키보드 포커스 시
 `text`를 말풍선(`tooltip-bubble`)으로 보여준다. CSS의 `:hover`/`:focus` 선택자로만 동작하며
 별도 JS 상태(useState) 없이 구현됨.
+- 말풍선은 기본으로 아이콘의 왼쪽 끝에서 오른쪽으로 펼쳐진다
+- `align="end"`면 아이콘의 오른쪽 끝에 맞춰 왼쪽으로 펼친다(`tooltip-bubble-end`). 화면 오른쪽 끝에 놓이는 "지시어 숨기기"의 아이콘이 이렇게 써서,
+  말풍선이 화면 밖으로 나가 가로 스크롤이 생기지 않게 한다
 
 ### `formatBytes(bytes) : string`
 바이트 숫자를 사람이 읽기 좋은 문자열로 변환.
@@ -88,9 +128,16 @@
 - 컴파일에 실패한 레벨은 비교할 어셈블리가 없으므로 버튼을 `disabled`로 막음
 - 누르면 `onSelect(level)`로 그 레벨 id를 올려보냄 (`App`의 `setBaseLevel`)
 
+### `DirectiveFilterToggle({ checked, onChange })` (컴포넌트)
+"비교 기준" 버튼 줄의 오른쪽 끝에 놓이는 "지시어 숨기기" 체크박스와 설명 툴팁(`align="end"`).
+좁은 화면에서 다음 줄로 넘어가도 `margin-left: auto`로 오른쪽 끝에 붙어 있습니다.
+바꾸면 `onChange(checked)`로 올려보냅니다 (`App`의 `setHideDirectives`). 다시 컴파일하지 않고 화면에서만 바뀝니다.
+"실행 시간 측정" 체크박스와 같은 `option-toggle` 스타일을 씁니다.
+
 ### `OptimizationColumn({ result, base })` (컴포넌트)
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과입니다
 (기본은 응답의 첫 번째 레벨, `BaseLevelSelector`로 고르면 그 레벨).
+`result`와 `base`는 `App`의 `shownResults`에서 오므로, "지시어 숨기기"가 켜져 있으면 `assembly`가 이미 걸러진 텍스트입니다.
 `memo`로 감싸고 `diffLines()`도 `useMemo`로 감쌌습니다. 에디터에 글자를 칠 때마다 `App`이 다시 그려지는데, 어셈블리가 수만 줄이면
 diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준이 바뀔 때만 다시 계산합니다.
 - 헤더에 `result.levelLabel`(예: `-O0`) + `InfoTooltip(result.levelDescription)`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
@@ -110,7 +157,8 @@ diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준�
 - `drafts`: 언어 id별로 편집하던 코드. 다른 언어에 갔다가 돌아오면 여기서 복원 (메모리에만 있어서 새로고침하면 사라짐)
 - `results`: 백엔드 응답(`OptimizationResult` 배열), 아직 요청 전이면 `null`
 - `baseLevel`: "비교 기준"으로 고른 레벨 id. `null`이면 첫 번째 결과를 기준으로 씀.
-  렌더링할 때 `results`에서 이 id를 찾고, 없으면 `results[0]`을 기준(`base`)으로 삼음
+  렌더링할 때 `shownResults`에서 이 id를 찾고, 없으면 `shownResults[0]`을 기준(`base`)으로 삼음
+- `hideDirectives`: "지시어 숨기기" 체크박스 상태 (기본 `true`). 다시 비교해도 유지됨
 - `loading`: 요청 진행 중 여부 (버튼 비활성화 + "컴파일 중..." 텍스트에 사용)
 - `error`: 요청 실패 시 에러 메시지
 - `compilers`: `GET /api/compilers` 응답(`{id, label, available, language, languageLabel}` 배열). 받기 전이나 실패 시 `FALLBACK_COMPILERS`
@@ -119,6 +167,11 @@ diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준�
 - `runBenchmark`: "실행 시간 측정" 체크박스 상태 (기본 `false`, 옵트인)
 
 매 렌더링마다 `groupByLanguage(compilers)`로 언어 목록을 만들고, 그중 `language`에 해당하는 것을 현재 언어로 씁니다.
+
+화면에 그리는 결과는 `results`가 아니라 `shownResults`입니다. `hideDirectives`가 켜져 있으면 컴파일에 성공한 결과마다
+`assembly`를 `filterAssembly()`로 걸러낸 사본을 만들고, 꺼져 있으면 `results`를 그대로 씁니다.
+`useMemo`로 `results`나 `hideDirectives`가 바뀔 때만 새로 만듭니다 — 렌더링마다 새 객체를 만들면 `OptimizationColumn`의 `memo`가
+소용없어져서 에디터에 글자를 칠 때마다 diff를 다시 계산하게 되기 때문입니다.
 
 #### `useEffect` (마운트 시 1회)
 `GET /api/compilers`를 호출해 `compilers`를 채우고, `initialLanguage()`로 고른 언어와 그 언어의
@@ -153,8 +206,8 @@ diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준�
 3. "비교하기" 버튼, 에러 메시지(있으면)
 4. `results`가 있으면:
    - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
-   - `BaseLevelSelector`("비교 기준" 버튼 그룹)
-   - `base`(기본은 `results[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 각 결과를 `OptimizationColumn`으로 렌더링
+   - `BaseLevelSelector`("비교 기준" 버튼 그룹)와 `DirectiveFilterToggle`("지시어 숨기기")을 한 줄(`results-toolbar`)에 배치
+   - `base`(기본은 `shownResults[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 `shownResults`의 각 결과를 `OptimizationColumn`으로 렌더링
 
 ---
 
