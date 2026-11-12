@@ -17,6 +17,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -124,6 +125,29 @@ class CompileControllerTest {
                         .header("Access-Control-Request-Headers", "content-type"))
                 .andExpect(status().isForbidden())
                 .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
+    void 낯선_이름으로_온_요청은_컴파일하지_않고_403으로_거부한다() throws Exception {
+        // DNS 리바인딩: 다른 사이트가 자기 도메인을 127.0.0.1로 바꿔치기하면 브라우저는 "같은 출처"로 보고
+        // 사전 요청 없이 그대로 보낸다. 이때도 Host 헤더는 그 사이트의 이름이라 HostHeaderFilter가 걸러낸다.
+        mockMvc.perform(post("/api/compile")
+                        .header("Host", "evil.example:8080")
+                        .header("Origin", "http://evil.example:8080")
+                        .contentType("application/json")
+                        .content("{\"code\":\"int main() { return 0; }\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").exists());
+
+        verifyNoInteractions(compilerService);
+    }
+
+    @Test
+    void IP_주소로_온_요청은_그대로_처리한다() throws Exception {
+        when(compilerRegistry.listAll()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/compilers").header("Host", "127.0.0.1:8080"))
+                .andExpect(status().isOk());
     }
 
     @Test

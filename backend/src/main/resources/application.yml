@@ -6,6 +6,14 @@ server:
   # --server.address=0.0.0.0 (또는 환경 변수 SERVER_ADDRESS=0.0.0.0)으로 바꿔서 실행한다.
   address: 127.0.0.1
 
+optimeter:
+  # 주소창에 localhost나 IP 주소가 아닌 이름을 넣어 접속해야 할 때, 그 이름을 쉼표로 구분해 적는다 (포트는 빼고).
+  #   예) --optimeter.allowed-hosts=my-mac.local  또는  OPTVIS_ALLOWED_HOSTS=my-mac.local,lab-pc
+  # localhost와 IP 주소(127.0.0.1, 192.168.0.5 등)는 적지 않아도 항상 된다.
+  # 여기 없는 이름으로 온 요청은 403으로 거부한다. 다른 웹사이트가 자기 도메인을 이 PC의 주소로 바꿔치기해서
+  # 이 서버를 호출하는 공격(DNS 리바인딩)을 막기 위함이다 (HostHeaderFilter 참고).
+  allowed-hosts: ${OPTVIS_ALLOWED_HOSTS:}
+
 compiler:
   # 프론트엔드가 선택할 수 있는 컴파일러 목록. 화면은 이 순서를 유지한 채 language별로 묶어서 보여준다.
   #

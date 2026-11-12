@@ -12,6 +12,8 @@ Spring Boot 진입점. `main()`에서 `SpringApplication.run()`을 호출해 내
 - `server.address: 127.0.0.1` — 이 PC에서 오는 접속만 받습니다. 받은 코드를 컴파일/실행하는 서버라서
   같은 네트워크의 다른 기기가 접속할 수 없게 한 것입니다. 실행할 때 `--server.address=0.0.0.0`
   (또는 환경 변수 `SERVER_ADDRESS`)으로 바꿀 수 있습니다.
+- `optimeter.allowed-hosts` — `localhost`나 IP 주소가 아닌 이름으로 접속해야 할 때 그 이름을 쉼표로 구분해 적습니다
+  (기본값은 비어 있음, 환경 변수 `OPTVIS_ALLOWED_HOSTS`). 아래 [`HostHeaderFilter`](#hostheaderfilter) 참고.
 - jar 안에 `static/` 폴더가 있으면(= `bundle` 프로필로 빌드한 경우) Spring Boot가 그 안의 화면 파일을
   `/`에서 자동으로 내보냅니다. 이를 위한 별도 코드는 없습니다.
 
@@ -332,6 +334,30 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 
 ---
 
+## `HostHeaderFilter`
+**파일**: [`backend/src/main/java/.../security/HostHeaderFilter.java`](../backend/src/main/java/com/compareopt/optvisualizer/security/HostHeaderFilter.java)
+
+모든 요청(API와 화면 파일)의 `Host` 헤더를 보고, 이 서버를 가리키는 주소가 아니면 컨트롤러에 넘기지 않고
+403으로 거부하는 서블릿 필터. **DNS 리바인딩** 공격을 막습니다.
+
+- **막으려는 공격**: 사용자가 방문한 사이트가 자기 도메인(`evil.example`)의 DNS 응답을 `127.0.0.1`로 바꿔치기하면,
+  브라우저는 그 페이지의 스크립트가 `http://evil.example:8080/api/compile`로 보내는 요청을 "같은 출처"로 보고
+  사전 요청 없이 이 서버에 보냅니다. 서버가 `127.0.0.1`에서만 듣는 것과 CORS 허용 설정이 없는 것만으로는 막지 못합니다.
+  이때도 `Host` 헤더는 주소창의 이름(`evil.example`) 그대로라서 여기서 걸러낼 수 있습니다.
+- **통과시키는 Host** (`isAllowed()`): 포트는 떼고, 대소문자와 끝의 점(`localhost.`)은 가리지 않고 비교합니다.
+  - `localhost`
+  - IP 주소 (`127.0.0.1`, `192.168.0.5`, `[::1]`). IP 주소는 DNS를 거치지 않아 바꿔치기할 수 없으므로 모두 통과시킵니다.
+    그래서 `--server.address=0.0.0.0`으로 띄우고 다른 기기에서 IP 주소로 접속하는 것은 설정 없이 됩니다.
+  - `optimeter.allowed-hosts`에 적은 이름 (예: `my-mac.local`)
+- **거부할 때**: 403과 `{ "message": "이 주소로는 접속할 수 없습니다. ..." }`(`ErrorResponse`)를 응답하고,
+  요청 메서드·경로·Host를 WARN 로그로 남깁니다. `localhost.evil.example`, `127.0.0.1.evil.example`처럼
+  허용되는 이름을 앞에 붙인 도메인도 거부합니다.
+- 판단에는 `request.getServerName()`(`Host`에서 포트를 뗀 값)을 씁니다. 브라우저는 항상 `Host`를 보내지만, `Host`가 없는
+  HTTP/1.0 요청이면 서블릿 컨테이너가 서버 자신의 주소나 이름을 대신 돌려주고 그 값으로 같은 판단을 합니다.
+- `@Order(Ordered.HIGHEST_PRECEDENCE)`로 다른 필터보다 먼저 실행됩니다.
+
+---
+
 ## `GlobalExceptionHandler`
 **파일**: [`backend/src/main/java/.../exception/GlobalExceptionHandler.java`](../backend/src/main/java/com/compareopt/optvisualizer/exception/GlobalExceptionHandler.java)
 
@@ -418,4 +444,5 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 - 버전은 `revision` 속성(기본 `0.0.1-SNAPSHOT`)입니다. 릴리스 빌드는 `-Drevision=1.2.3`으로 지정합니다
   ([release.md](./release.md) 참고).
 - CI는 세 OS에서 이 프로필로 jar를 만든 뒤 [`.github/scripts/smoke-test.sh`](../.github/scripts/smoke-test.sh)로
-  실제로 띄워서 화면(`/`)과 API(`/api/compilers`, `/api/compile`)가 한 서버에서 나오는지 확인합니다.
+  실제로 띄워서 화면(`/`)과 API(`/api/compilers`, `/api/compile`)가 한 서버에서 나오는지, 낯선 `Host`로 온 요청이
+  403으로 거부되는지 확인합니다.
