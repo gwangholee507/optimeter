@@ -139,4 +139,12 @@ class RustcToolchainTest {
     private List<String> commandOf(String code) {
         return rustc.forSource(code).codegenCommands(rustc.levels().get(0), "input.rs", "out-0.s", "out-0.o").get(0);
     }
+
+    @Test
+    void 최적화_remark는_내지_않는다() {
+        // rustc의 -C remark는 디버그 정보를 켜야 위치가 나오고(어셈블리가 달라진다) 대부분 표준 라이브러리 내부의 기록이다
+        assertThat(rustc.remarks("note: input.rs:2:5 inline (success): ...", "input.rs")).isEmpty();
+        assertThat(rustc.codegenCommands(rustc.levels().get(2), "input.rs", "out.s", "out.o").get(0))
+                .noneMatch(arg -> arg.contains("remark"));
+    }
 }

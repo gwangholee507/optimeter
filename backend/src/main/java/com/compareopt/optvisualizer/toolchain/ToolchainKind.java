@@ -8,8 +8,8 @@ package com.compareopt.optvisualizer.toolchain;
  * candidates에 적어주면 된다.
  */
 public enum ToolchainKind {
-    CLANG(new GccStyleToolchain(false)),
-    GCC(new GccStyleToolchain(true)),
+    CLANG(new GccStyleToolchain(false, RemarkFormat.CLANG)),
+    GCC(new GccStyleToolchain(true, RemarkFormat.GCC)),
     RUSTC(new RustcToolchain());
 
     private final Toolchain toolchain;

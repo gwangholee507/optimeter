@@ -1,5 +1,6 @@
 package com.compareopt.optvisualizer.toolchain;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -7,6 +8,7 @@ import java.util.Optional;
 /**
  * clang과 GCC처럼 `-S`, `-c`, `-O2` 같은 GCC식 명령줄을 쓰는 컴파일러.
  * 언어와 상관없이 같은 규칙이라, 실행 파일만 다른 C++(clang++, g++)도 이 구현을 함께 쓸 수 있다.
+ * 최적화 remark를 내게 하는 인자와 출력 형식만 clang과 GCC가 달라서 RemarkFormat으로 받는다.
  */
 final class GccStyleToolchain implements Toolchain {
 
@@ -22,12 +24,15 @@ final class GccStyleToolchain implements Toolchain {
                     + "코드에 따라 O2보다 항상 빠른 것은 아닙니다."));
 
     private final boolean requireGnu;
+    private final RemarkFormat remarkFormat;
 
     /**
-     * @param requireGnu true면 진짜 GNU GCC만 인정한다 (clang의 별칭인 gcc는 건너뜀)
+     * @param requireGnu   true면 진짜 GNU GCC만 인정한다 (clang의 별칭인 gcc는 건너뜀)
+     * @param remarkFormat 이 컴파일러가 최적화 remark를 내는 방식
      */
-    GccStyleToolchain(boolean requireGnu) {
+    GccStyleToolchain(boolean requireGnu, RemarkFormat remarkFormat) {
         this.requireGnu = requireGnu;
+        this.remarkFormat = remarkFormat;
     }
 
     @Override
@@ -56,14 +61,22 @@ final class GccStyleToolchain implements Toolchain {
     }
 
     /**
-     * {compiler} -S -O{n} input.c -o out.s
+     * {compiler} -S -O{n} {remark 인자} input.c -o out.s — 어셈블리와 함께 최적화 remark를 출력한다.
      * {compiler} -c -O{n} input.c -o out.o — 링크하지 않으므로 main()이 없어도 된다.
      */
     @Override
     public List<List<String>> codegenCommands(OptLevel level, String sourceFile, String asmFile, String objFile) {
+        List<String> asmArgs = new ArrayList<>(List.of("-S", flag(level)));
+        asmArgs.addAll(remarkFormat.flags());
+        asmArgs.addAll(List.of(sourceFile, "-o", asmFile));
         return List.of(
-                List.of("-S", flag(level), sourceFile, "-o", asmFile),
+                asmArgs,
                 List.of("-c", flag(level), sourceFile, "-o", objFile));
+    }
+
+    @Override
+    public Optional<List<OptRemark>> remarks(String compilerOutput, String sourceFile) {
+        return Optional.of(remarkFormat.parse(compilerOutput, sourceFile));
     }
 
     /** {compiler} -O{n} input.c -o out.exe — 링크까지 하므로 main()이 있어야 성공한다. */

@@ -107,14 +107,18 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
 
 ### `runOneLevel(...) : OptimizationResult` (private)
 특정 최적화 레벨 하나에 대한 컴파일(및 옵트인 시 실행 벤치마크)을 수행.
-1. `Toolchain.codegenCommands()`의 첫 번째 명령으로 어셈블리 생성 (`{compiler} -S -O{level} input.c -o out.s`)
+1. `Toolchain.codegenCommands()`의 첫 번째 명령으로 어셈블리 생성 (`{compiler} -S -O{level} input.c -o out.s`).
+   clang/gcc는 이 명령에 remark 인자가 붙어서 최적화 remark도 함께 출력됨
    - 실패 시 컴파일러 출력을 그대로 담아 `OptimizationResult.failure()` 반환
 2. 남은 명령으로 오브젝트 파일 생성 (`{compiler} -c -O{level} input.c -o out.o`, 크기 비교용, `main()` 없어도 동작).
    rustc는 첫 번째 명령이 둘 다 만들어서 남은 명령이 없음
 3. 오브젝트 파일 크기(`Files.size()`)를 읽고, 실패해도 무시(0으로 처리)하고 계속 진행
 4. 어셈블리 파일 내용을 문자열로 읽어서(줄바꿈은 `\n`으로 통일) `OptimizationResult.success()` 생성하고,
    `Toolchain.assemblyNotice()`가 돌려준 안내 문구가 있으면 `notice`에 붙임
-5. `runBenchmark=true`면 `benchmarkExecution()`을 호출해 실행 시간을 결과에 붙임
+5. `Toolchain.remarks()`로 1번 명령의 출력에서 최적화 remark를 뽑아 `remarks`에 붙임.
+   레벨당 200건(`MAX_REMARKS_PER_LEVEL`)까지만 담고 나머지는 개수만 `omittedRemarkCount`에 남김
+   (함수가 수백 개인 코드는 인라이닝 remark만 수천 건이 됨). remark를 내지 않는 계열(rustc)이면 `remarks`는 `null`로 남음
+6. `runBenchmark=true`면 `benchmarkExecution()`을 호출해 실행 시간을 결과에 붙임
 
 ### `benchmarkExecution(...) : ExecutionOutcome` (private)
 `Toolchain.executableArgs()`(`{compiler} -O{level} input.c -o out.exe`)로 링크를 시도한 뒤(성공해야 `main()`이 있다는 뜻),
@@ -152,7 +156,10 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 [`toolchain/ToolchainKind.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/ToolchainKind.java),
 [`toolchain/Toolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/Toolchain.java),
 [`toolchain/GccStyleToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/GccStyleToolchain.java),
-[`toolchain/RustcToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/RustcToolchain.java)
+[`toolchain/RustcToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/RustcToolchain.java),
+[`toolchain/OptRemark.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/OptRemark.java),
+[`toolchain/RemarkFormat.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/RemarkFormat.java),
+[`toolchain/RemarkTopic.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/RemarkTopic.java)
 
 `platform` 패키지가 OS 차이를 모아두듯, 이 패키지는 언어와 컴파일러 계열의 차이를 모아둡니다.
 `CompilerService`에는 `if (gcc)`나 `if (rust)` 같은 분기를 두지 않고, 새 언어/컴파일러는 이 패키지에 추가합니다.
@@ -192,11 +199,56 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 - `executionFailure(exitCode)`: 종료 코드를 보고 실행 시간을 믿을 수 없으면 이유를 돌려줌. 기본은 따지지 않음
   (C는 계산 결과를 `main`의 반환값으로 쓰는 코드가 흔해서 0이 아니어도 정상 실행일 수 있음)
 - `assemblyNotice(assembly)`: 컴파일은 성공했지만 결과를 볼 때 알아야 할 내용이 있으면 돌려줌. 기본은 없음
+- `remarks(compilerOutput, sourceFile)`: `codegenCommands()` 첫 번째 명령의 출력에서 최적화 remark(`OptRemark`)를 뽑음.
+  기본은 empty(remark를 내지 않는 계열)이고, 이때 화면은 remark 영역을 그리지 않음.
+  remark를 내지만 이번에는 하나도 없었다는 뜻의 빈 목록과 구분함
 
 ### `GccStyleToolchain`
 clang과 GCC처럼 GCC식 명령줄(`-S`, `-c`, `-O2`)을 쓰는 컴파일러. C++의 clang++/g++도 같은 구현을 씁니다.
 레벨은 `O0`~`O3`이고, 각 레벨의 초보자용 설명(예전에는 프론트엔드에 있던 툴팁 문구)도 여기서 정합니다.
 `ToolchainKind`를 통해서만 만들어지도록 패키지 밖에는 공개하지 않습니다.
+
+clang과 GCC가 다른 부분은 최적화 remark뿐이라 생성자에서 `RemarkFormat`으로 받습니다.
+어셈블리를 만드는 명령(`-S`)에 `RemarkFormat.flags()`를 붙이고, `remarks()`는 그 출력을 `RemarkFormat.parse()`에 넘깁니다.
+크기를 재는 `-c` 명령과 실행 파일을 만드는 명령에는 붙이지 않습니다.
+
+### `OptRemark` (record)
+컴파일러가 한 레벨을 컴파일하면서 남긴 최적화 기록 하나. 어셈블리 모양으로 추정한 것이 아니라 컴파일러가 직접 알려준 내용입니다.
+- `kind`: `APPLIED`(최적화를 적용함) 또는 `MISSED`(시도했지만 못 함)
+- `line` / `column`: 사용자 소스 코드에서의 위치 (1부터). 컴파일러가 칸을 알려주지 않으면 `column`은 0
+- `pass`: 컴파일러가 붙인 패스 이름 (예: `loop-vectorize`). GCC는 알려주지 않아서 `null`
+- `topicLabel` / `topicDescription`: 최적화 종류의 한국어 이름과 초보자용 설명 (`RemarkTopic`). 모르는 종류면 `null`
+- `message`: 컴파일러가 출력한 원문 메시지
+- `count`: 같은 위치에 같은 메시지가 나온 횟수
+
+### `RemarkFormat` (enum)
+컴파일러가 remark를 내게 하는 인자와 그 출력을 읽는 방법. 패키지 밖에는 공개하지 않습니다.
+
+| 값 | 붙이는 인자 | 읽는 줄 |
+|---|---|---|
+| `CLANG` | `-Rpass=.*` `-Rpass-missed=.*` | `input.c:10:18: remark: ... [-Rpass=inline]` (`-Rpass-missed=`면 `MISSED`) |
+| `GCC` | `-fopt-info-optimized-missed` | `input.c:9:23: optimized: ...` / `input.c:9:23: missed: ...` |
+
+- 이 인자들은 진단 출력만 늘리고 만들어지는 코드는 바꾸지 않습니다. `CompilerServiceTest`가 인자 없이 직접 컴파일한 어셈블리와 같은지 확인합니다.
+- clang의 `-Rpass-analysis`와 GCC의 `-fopt-info-all`은 쓰지 않습니다. 패스별 명령어 수 변화나 벡터화 분석 과정까지 나와서
+  짧은 코드도 수백 줄이 됩니다.
+- clang의 `-fno-caret-diagnostics`로 소스 인용 줄을 끄지 않습니다. 컴파일 에러에서도 인용이 사라지기 때문입니다.
+  인용 줄과 경고는 위 형식에 맞지 않아서 저절로 걸러집니다.
+
+#### `parse(compilerOutput, sourceFile) : List<OptRemark>`
+- **사용자 소스 파일의 remark만 남김**: C++ 표준 라이브러리를 쓰면 대부분이 헤더 내부의 인라이닝 기록이고, 화면에서 가리킬 사용자 코드의 줄이 없음
+- **clang의 코드 생성 기록은 버림**: `regalloc`(레지스터 할당 비용 통계), `stack-protector`(스택 보호 코드 삽입, `-O0`에서도 나옴),
+  `inline-cost`(같은 자리에 `inline` 패스의 remark가 따로 나옴)
+- **같은 위치의 같은 remark는 하나로 합치고 `count`를 셈**: 루프를 여러 패스가 다시 볼 때마다 같은 remark가 반복됨
+- **소스 줄 순서로 정렬**: 같은 위치의 remark끼리는 컴파일러가 낸 순서를 유지
+
+### `RemarkTopic` (enum)
+remark를 초보자가 알아볼 수 있는 최적화 종류로 묶고 한국어 이름과 설명을 붙입니다 (화면의 종류 이름과 마우스를 올렸을 때 나오는 설명).
+함수 인라이닝, 루프 벡터화, SLP 벡터화, 루프 펼치기, 중복 계산 제거(GVN), 루프 불변 코드 이동(LICM), 루프 관용구 치환,
+루프 삭제, 꼬리 재귀 제거를 압니다. 여기 없는 remark는 버리지 않고 종류 없이 원문만 보여줍니다.
+- clang은 remark마다 패스 이름을 알려주므로 그 이름으로 찾음 (`forClangPass`)
+- GCC는 패스 이름 없이 메시지만 주므로 메시지에 들어가는 낱말(`inlin`, `vectoriz`, `unroll`, `library call`)로 찾음 (`forGccMessage`).
+  GCC의 SLP 벡터화, GVN, LICM 등은 구분하지 못함
 
 ### `RustcToolchain`
 cargo 없이 rustc를 직접 부르는 구현. 단일 파일과 표준 라이브러리만 쓸 수 있습니다. 레벨은 `0`~`3`, `s`, `z`입니다.
@@ -230,6 +282,9 @@ GCC식 컴파일러와 달리 크레이트 종류에 따라 결과가 크게 달
   3.96초에서 2.42초로), 어셈블리와 크기가 같은 컴파일의 결과가 됩니다.
 - 레벨 0에서만 오버플로 검사가 켜져 있어서(`cargo build`, `cargo build --release`와 같은 동작) 같은 코드가 레벨 0에서만 패닉으로
   바로 끝날 수 있습니다. 그대로 재면 레벨 0이 가장 빠르게 보이므로 `executionFailure()`가 0이 아닌 종료 코드를 실패로 처리합니다.
+- 최적화 remark는 내지 않습니다 (`remarks()`를 재정의하지 않음). rustc에도 `-C remark=all`이 있지만 위치를 얻으려면
+  `-C debuginfo`를 켜야 해서 어셈블리와 오브젝트 크기가 달라지고, 나오는 기록도 대부분 표준 라이브러리 내부의 맹글링된 이름이라
+  사용자 코드의 줄과 연결되지 않습니다 (rustc 1.98.1에서 확인).
 
 ---
 
@@ -327,6 +382,8 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
   결과마다 레벨 정보를 담아두면 화면이 컴파일러 목록과 따로 맞춰보지 않고 바로 그릴 수 있음
 - `setCompilerInfo(compilerId, compilerLabel)`: success/failure 여부와 무관하게 항상 호출되어
   어떤 컴파일러로 만든 결과인지 붙여줌
+- `setRemarks(remarks, omittedRemarkCount)`: 컴파일러가 남긴 최적화 remark(`OptRemark` 목록, 소스 줄 순서)와,
+  너무 많아서 담지 않은 개수. remark를 내지 않는 컴파일러거나 컴파일에 실패했으면 호출되지 않아 `remarks`가 `null`
 - `setExecutionResult(executionTimeMs, executionError)`: `runBenchmark=true`일 때만 채워짐.
   둘 다 상호 배타적 — 측정에 성공하면 `executionTimeMs`만, 실패/불가능하면 `executionError`만 채워짐
 

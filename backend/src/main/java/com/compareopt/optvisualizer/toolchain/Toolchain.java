@@ -50,6 +50,16 @@ public interface Toolchain {
      */
     List<List<String>> codegenCommands(OptLevel level, String sourceFile, String asmFile, String objFile);
 
+    /**
+     * codegenCommands의 첫 번째 명령이 성공했을 때, 그 출력에서 최적화 remark를 뽑는다.
+     * 사용자 소스 파일(sourceFile)에 대한 remark만 소스 줄 순서로 돌려준다.
+     * remark를 내지 않는 계열은 empty를 돌려주고, 화면은 그 컴파일러에서 remark 영역을 아예 그리지 않는다
+     * (remark를 내지만 이번에는 하나도 없었다는 뜻의 빈 목록과 구분한다).
+     */
+    default Optional<List<OptRemark>> remarks(String compilerOutput, String sourceFile) {
+        return Optional.empty();
+    }
+
     /** 실행 시간 측정용 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 된다 (실행 측정만 건너뜀). */
     List<String> executableArgs(OptLevel level, String sourceFile, String outputFile);
 

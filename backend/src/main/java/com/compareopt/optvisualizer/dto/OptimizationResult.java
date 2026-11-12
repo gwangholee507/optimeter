@@ -1,6 +1,9 @@
 package com.compareopt.optvisualizer.dto;
 
 import com.compareopt.optvisualizer.toolchain.OptLevel;
+import com.compareopt.optvisualizer.toolchain.OptRemark;
+
+import java.util.List;
 
 public class OptimizationResult {
 
@@ -13,6 +16,10 @@ public class OptimizationResult {
     private long compileTimeMs;
     private String errorMessage;   // 실패 시 컴파일러 stderr
     private String notice;         // 성공했지만 결과를 볼 때 알아야 할 내용 (예: 어셈블리에 함수가 없는 이유). 없으면 null
+
+    // 컴파일러가 이 레벨에서 남긴 최적화 remark (소스 줄 순서). remark를 내지 않는 컴파일러거나 컴파일에 실패했으면 null
+    private List<OptRemark> remarks;
+    private int omittedRemarkCount; // 너무 많아서 remarks에 담지 않은 remark 개수
 
     private String compilerId;     // 이 결과를 만든 컴파일러 id (예: "gcc")
     private String compilerLabel;  // 화면 표시용 이름 (예: "GNU GCC")
@@ -84,6 +91,20 @@ public class OptimizationResult {
 
     public void setNotice(String notice) {
         this.notice = notice;
+    }
+
+    public List<OptRemark> getRemarks() {
+        return remarks;
+    }
+
+    public int getOmittedRemarkCount() {
+        return omittedRemarkCount;
+    }
+
+    /** 최적화 remark를 붙여준다. remark를 내지 않는 컴파일러면 호출되지 않아 null로 남는다. */
+    public void setRemarks(List<OptRemark> remarks, int omittedRemarkCount) {
+        this.remarks = remarks;
+        this.omittedRemarkCount = omittedRemarkCount;
     }
 
     public String getCompilerId() {

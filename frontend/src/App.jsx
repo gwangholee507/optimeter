@@ -12,6 +12,7 @@ import {
   initialLanguage,
   switchDraft,
 } from './languages'
+import { REMARK_KIND_LABEL, remarkTopic, summarizeRemarks } from './remarks'
 
 const BACKEND_UNREACHABLE = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.'
 
@@ -88,6 +89,59 @@ function BaseLevelSelector({ results, base, onSelect }) {
   )
 }
 
+// 컴파일러가 이 레벨에서 남긴 최적화 remark. 어셈블리 위에 접을 수 있는 목록으로 보여준다.
+// remarks가 null이면 remark를 내지 않는 컴파일러(rustc)라서 아무것도 그리지 않는다.
+function RemarkPanel({ remarks, omittedCount }) {
+  if (remarks == null) return null
+  const { applied, missed } = summarizeRemarks(remarks)
+
+  return (
+    <details className="remark-panel" open>
+      <summary>
+        최적화 기록
+        <span className="remark-count remark-applied">적용 {applied}</span>
+        <span className="remark-count remark-missed">놓침 {missed}</span>
+      </summary>
+      {remarks.length === 0 ? (
+        <p className="remark-empty">이 레벨에서 컴파일러가 남긴 기록이 없습니다.</p>
+      ) : (
+        <ul className="remark-list">
+          {remarks.map((remark, idx) => {
+            const topic = remarkTopic(remark)
+            return (
+              <li key={idx} className="remark-item">
+                <span
+                  className={
+                    remark.kind === 'APPLIED' ? 'remark-kind remark-applied' : 'remark-kind remark-missed'
+                  }
+                >
+                  {REMARK_KIND_LABEL[remark.kind] ?? remark.kind}
+                </span>
+                <span className="remark-line">{remark.line}행</span>
+                {topic && (
+                  <span
+                    className={remark.topicDescription ? 'remark-topic remark-topic-known' : 'remark-topic'}
+                    title={remark.topicDescription ?? undefined}
+                  >
+                    {topic}
+                  </span>
+                )}
+                <span className="remark-message">
+                  {remark.message}
+                  {remark.count > 1 && <span className="remark-repeat"> ×{remark.count}</span>}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {omittedCount > 0 && (
+        <p className="remark-empty">너무 많아서 뒤쪽 {omittedCount}건은 생략했습니다.</p>
+      )}
+    </details>
+  )
+}
+
 // 켜져 있으면 어셈블리에서 지시어처럼 코드가 아닌 줄을 숨긴다. 다시 컴파일하지 않고 화면에서만 바뀐다.
 function DirectiveFilterToggle({ checked, onChange }) {
   return (
@@ -148,6 +202,9 @@ const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
         )}
       </div>
       {result.notice && <p className="result-notice">ⓘ {result.notice}</p>}
+      {result.success && (
+        <RemarkPanel remarks={result.remarks} omittedCount={result.omittedRemarkCount} />
+      )}
       {result.success ? (
         <AssemblyView assembly={result.assembly} lineStates={diffSummary?.lineStates} />
       ) : (
@@ -333,6 +390,14 @@ function App() {
             <BaseLevelSelector results={shownResults} base={base} onSelect={setBaseLevel} />
             <DirectiveFilterToggle checked={hideDirectives} onChange={setHideDirectives} />
           </div>
+          {shownResults.some((r) => r.remarks != null) && (
+            <p className="remark-help">
+              열마다 있는 <strong>최적화 기록</strong>은 컴파일러가 그 레벨에서 직접 남긴 것입니다.{' '}
+              <span className="remark-applied">적용</span>은 실제로 한 최적화,{' '}
+              <span className="remark-missed">놓침</span>은 하려다 못 한 최적화이고, 앞의 숫자는 소스 코드의 줄
+              번호입니다.
+            </p>
+          )}
           <div className="results-section">
             {shownResults.map((r) => (
               <OptimizationColumn key={r.level} result={r} base={base} />

@@ -108,6 +108,9 @@ rustc --edition=2021 -C symbol-mangling-version=v0 -C codegen-units=1 -C opt-lev
 - **함수 이름이 복잡합니다.** `__RNvCslneCz6SEpaJ_5input8sum_loop`처럼 맹글링된 이름이 나옵니다. 숫자는 바로 뒤에 오는 이름의
   글자 수라서, `5input`은 크레이트 이름 `input`(입력 파일 이름), `8sum_loop`는 함수 이름 `sum_loop`입니다. 이름을 읽는 규칙은
   [rustc 문서의 v0 맹글링](https://doc.rust-lang.org/rustc/symbol-mangling/v0.html)에 있습니다.
+- **최적화 기록이 나오지 않습니다.** C/C++에서는 열마다 컴파일러가 남긴 기록(무슨 최적화를 했고 무엇을 못 했는지)이 나오지만
+  Rust에는 없습니다. rustc의 `-C remark=all`은 위치를 얻으려면 디버그 정보를 켜야 해서 어셈블리와 크기가 달라지고,
+  나오는 기록도 대부분 표준 라이브러리 내부의 맹글링된 이름이라 내 코드의 줄과 연결되지 않기 때문입니다.
 - **실행 중 패닉은 `⏱ 실행 불가`로 표시합니다.** 오버플로 검사는 `opt-level=0`에서만 켜져 있어서, 같은 코드가 `0`에서만 패닉으로
   바로 끝날 수 있습니다. 그대로 재면 `0`이 가장 빠른 것처럼 보이므로 종료 코드가 0이 아니면 시간을 버립니다.
 

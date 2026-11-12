@@ -329,6 +329,114 @@
   border-bottom: 1px solid #333;
 }
 
+/* 컴파일러가 남긴 최적화 remark: 열 제목과 어셈블리 사이에 접을 수 있는 목록으로 놓는다 */
+.remark-help {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #999;
+}
+
+.remark-panel {
+  border-bottom: 1px solid #333;
+  background: #1c1c1c;
+  font-size: 0.75rem;
+}
+
+.remark-panel summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  color: #bbb;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.remark-panel summary::before {
+  content: '▸';
+  color: #777;
+}
+
+.remark-panel[open] summary::before {
+  content: '▾';
+}
+
+.remark-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.remark-count {
+  font-weight: 500;
+}
+
+.remark-applied {
+  color: #7ee787;
+}
+
+.remark-missed {
+  color: #e3b341;
+}
+
+/* 레벨마다 건수가 달라도 어셈블리가 너무 아래로 밀리지 않게 높이를 제한하고 안에서 스크롤한다 */
+.remark-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.9rem 0.6rem;
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
+.remark-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.1rem 0.5rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+  border-top: 1px solid #2a2a2a;
+  line-height: 1.45;
+}
+
+.remark-kind {
+  font-weight: 700;
+}
+
+.remark-line {
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}
+
+.remark-topic {
+  color: #ccc;
+  font-weight: 600;
+}
+
+/* 마우스를 올리면 그 최적화가 무엇인지 설명이 나온다는 표시 */
+.remark-topic-known {
+  text-decoration: underline dotted #666;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.remark-message {
+  grid-column: 1 / -1;
+  color: #999;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.remark-repeat {
+  color: #777;
+}
+
+.remark-empty {
+  margin: 0;
+  padding: 0 0.9rem 0.6rem;
+  color: #777;
+}
+
 .error-badge {
   color: #ff6b6b;
   font-weight: 600;

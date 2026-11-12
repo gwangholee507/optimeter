@@ -5,6 +5,7 @@ import com.compareopt.optvisualizer.service.CompilerRegistry;
 import com.compareopt.optvisualizer.service.CompilerService;
 import com.compareopt.optvisualizer.toolchain.Language;
 import com.compareopt.optvisualizer.toolchain.OptLevel;
+import com.compareopt.optvisualizer.toolchain.OptRemark;
 import com.compareopt.optvisualizer.toolchain.ToolchainKind;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -67,7 +69,32 @@ class CompileControllerTest {
                 .andExpect(jsonPath("$[0].level").value("O0"))
                 .andExpect(jsonPath("$[0].levelLabel").value("-O0"))
                 .andExpect(jsonPath("$[0].levelDescription").value("최적화 없음"))
-                .andExpect(jsonPath("$[0].success").value(true));
+                .andExpect(jsonPath("$[0].success").value(true))
+                // remark를 내지 않는 컴파일러의 결과는 remarks가 null이다
+                .andExpect(jsonPath("$[0].remarks").value(nullValue()));
+    }
+
+    @Test
+    void 최적화_remark는_화면이_그대로_그릴_수_있는_형태로_내려간다() throws Exception {
+        OptimizationResult result = OptimizationResult.success(new OptLevel("O2", "-O2", "권장 수준"), "ret", 100, 10);
+        result.setRemarks(List.of(new OptRemark(OptRemark.Kind.APPLIED, 5, 18, "inline", "함수 인라이닝",
+                "함수 호출을 없앱니다.", "'square' inlined into 'sum_loop'", 2)), 3);
+        when(compilerService.compareOptimizationLevels(anyString(), anyString(), anyBoolean()))
+                .thenReturn(List.of(result));
+
+        mockMvc.perform(post("/api/compile")
+                        .contentType("application/json")
+                        .content("{\"code\":\"int f(){return 0;}\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].remarks[0].kind").value("APPLIED"))
+                .andExpect(jsonPath("$[0].remarks[0].line").value(5))
+                .andExpect(jsonPath("$[0].remarks[0].column").value(18))
+                .andExpect(jsonPath("$[0].remarks[0].pass").value("inline"))
+                .andExpect(jsonPath("$[0].remarks[0].topicLabel").value("함수 인라이닝"))
+                .andExpect(jsonPath("$[0].remarks[0].topicDescription").value("함수 호출을 없앱니다."))
+                .andExpect(jsonPath("$[0].remarks[0].message").value("'square' inlined into 'sum_loop'"))
+                .andExpect(jsonPath("$[0].remarks[0].count").value(2))
+                .andExpect(jsonPath("$[0].omittedRemarkCount").value(3));
     }
 
     @Test
