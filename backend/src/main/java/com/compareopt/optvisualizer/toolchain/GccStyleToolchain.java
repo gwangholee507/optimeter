@@ -62,7 +62,10 @@ final class GccStyleToolchain implements Toolchain {
 
     /**
      * {compiler} -S -O{n} {remark 인자} input.c -o out.s — 어셈블리와 함께 최적화 remark를 출력한다.
-     * {compiler} -c -O{n} input.c -o out.o — 링크하지 않으므로 main()이 없어도 된다.
+     * {compiler} -c out.s -o out.o — 방금 만든 어셈블리를 어셈블만 한다. 링크하지 않으므로 main()이 없어도 된다.
+     *
+     * 오브젝트를 소스부터 다시 컴파일하면 레벨마다 컴파일을 두 번 하게 된다. 어셈블만 해도 오브젝트는 같다
+     * (clang과 GCC 모두 O0~O3에서 크기가 같은 것을 확인함. GCC는 원래 내부에서 어셈블리를 거쳐 오브젝트를 만든다).
      */
     @Override
     public List<List<String>> codegenCommands(OptLevel level, String sourceFile, String asmFile, String objFile) {
@@ -71,7 +74,7 @@ final class GccStyleToolchain implements Toolchain {
         asmArgs.addAll(List.of(sourceFile, "-o", asmFile));
         return List.of(
                 asmArgs,
-                List.of("-c", flag(level), sourceFile, "-o", objFile));
+                List.of("-c", asmFile, "-o", objFile));
     }
 
     @Override
@@ -79,10 +82,13 @@ final class GccStyleToolchain implements Toolchain {
         return Optional.of(remarkFormat.parse(compilerOutput, sourceFile));
     }
 
-    /** {compiler} -O{n} input.c -o out.exe — 링크까지 하므로 main()이 있어야 성공한다. */
+    /**
+     * {compiler} out.o -o out.exe — codegenCommands가 만든 오브젝트를 링크만 한다. main()이 있어야 성공한다.
+     * C++도 clang++/g++ 드라이버로 링크하므로 표준 라이브러리가 함께 링크된다.
+     */
     @Override
-    public List<String> executableArgs(OptLevel level, String sourceFile, String outputFile) {
-        return List.of(flag(level), sourceFile, "-o", outputFile);
+    public List<String> executableArgs(OptLevel level, String sourceFile, String objFile, String outputFile) {
+        return List.of(objFile, "-o", outputFile);
     }
 
     /** 레벨 id가 곧 플래그 이름이라 (O2 → -O2) 화면의 열 제목도 플래그 그대로 보여준다. */

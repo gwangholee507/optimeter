@@ -121,9 +121,14 @@ final class RustcToolchain implements Toolchain {
         return List.of(args);
     }
 
-    /** rustc --edition=2021 ... -C opt-level={n} -o out.exe input.rs — 항상 프로그램으로 빌드하므로 main이 있어야 성공한다. */
+    /**
+     * rustc --edition=2021 ... -C opt-level={n} -o out.exe input.rs — 항상 프로그램으로 빌드하므로 main이 있어야 성공한다.
+     *
+     * GCC식 컴파일러와 달리 오브젝트 파일(objFile)을 링크하지 않고 소스부터 다시 빌드한다. 표준 라이브러리를 링크하는
+     * 인자는 rustc가 정하므로 rustc 없이 오브젝트만 링크할 방법이 없다.
+     */
     @Override
-    public List<String> executableArgs(OptLevel level, String sourceFile, String outputFile) {
+    public List<String> executableArgs(OptLevel level, String sourceFile, String objFile, String outputFile) {
         List<String> args = commonArgs(level);
         args.addAll(List.of("-o", outputFile, sourceFile));
         return args;
