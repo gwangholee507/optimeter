@@ -30,18 +30,59 @@
   margin-bottom: 2rem;
 }
 
+/* 줄 번호 칸과 입력창이 한 상자로 보이게 테두리와 배경은 바깥 상자에 준다.
+   글꼴, 크기, 줄 높이, 위쪽 여백이 두 칸에서 같아야 번호와 줄의 높이가 맞는다 */
 .code-editor {
-  width: 100%;
-  min-height: 220px;
-  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 0.9rem;
-  padding: 1rem;
+  display: flex;
   border-radius: 8px;
   border: 1px solid #444;
   background: #1e1e1e;
-  color: #d4d4d4;
-  resize: vertical;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.9rem;
   line-height: 1.5;
+}
+
+.code-editor:focus-within {
+  border-color: #646cff;
+  box-shadow: 0 0 0 1px #646cff;
+}
+
+/* 번호 칸의 높이는 입력창을 따라간다. 번호 목록은 absolute라서 줄이 많아도 상자를 늘리지 않고, 넘치는 부분은 잘린다 */
+.code-gutter {
+  position: relative;
+  flex: none;
+  width: calc(var(--line-digits) * 1ch + 1.5rem);
+  overflow: hidden;
+  border-right: 1px solid #333;
+  user-select: none;
+}
+
+.code-gutter pre {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 1rem 0.75rem;
+  font: inherit;
+  text-align: right;
+  color: #6e7681;
+  will-change: transform;
+}
+
+.code-editor textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 220px;
+  margin: 0;
+  padding: 1rem 1rem 1rem 0.75rem;
+  border: none;
+  border-radius: 0 8px 8px 0;
+  outline: none;
+  background: transparent;
+  color: #d4d4d4;
+  font: inherit;
+  resize: vertical;
 }
 
 .controls-row {

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import logo from './assets/logo-horizontal-dark.svg'
 import { filterAssembly } from './assemblyFilter'
@@ -42,6 +42,48 @@ function InfoTooltip({ text, align }) {
         {text}
       </span>
     </span>
+  )
+}
+
+// 왼쪽에 줄 번호를 붙인 코드 입력창. 최적화 기록의 "7행"이나 컴파일 에러의 "input.c:7:3"이 어느 줄인지 바로 찾을 수 있게 한다.
+// 긴 줄을 접어서 보여주면 번호와 줄이 어긋나므로 접지 않고(wrap="off") 가로로 스크롤한다.
+function CodeEditor({ value, onChange }) {
+  const textareaRef = useRef(null)
+  const numbersRef = useRef(null)
+  const lineCount = value.split('\n').length
+  // 글자를 칠 때마다가 아니라 줄 수가 바뀔 때만 번호를 다시 만든다
+  const lineNumbers = useMemo(
+    () => Array.from({ length: lineCount }, (_, i) => i + 1).join('\n'),
+    [lineCount],
+  )
+
+  // 번호 칸은 스스로 스크롤하지 않고, 입력창이 스크롤한 만큼 위로 밀어 올린다.
+  // 번호 칸에 따로 스크롤을 주면 입력창 아래에 생기는 가로 스크롤바 높이만큼 맨 끝에서 어긋난다
+  function syncScroll() {
+    numbersRef.current.style.transform = `translateY(${-textareaRef.current.scrollTop}px)`
+  }
+
+  // 언어를 바꾸거나 예제로 되돌려서 코드가 짧아지면 브라우저가 스크롤 위치를 줄이는데, 이때는 scroll 이벤트가 오지 않을 수 있다
+  useLayoutEffect(() => {
+    syncScroll()
+  }, [value])
+
+  return (
+    // 번호 칸의 너비는 가장 큰 번호의 자릿수(최소 2자리)에 맞춘다
+    <div className="code-editor" style={{ '--line-digits': Math.max(2, String(lineCount).length) }}>
+      <div className="code-gutter" aria-hidden="true">
+        <pre ref={numbersRef}>{lineNumbers}</pre>
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={syncScroll}
+        wrap="off"
+        spellCheck={false}
+        aria-label="소스 코드"
+      />
+    </div>
   )
 }
 
@@ -317,12 +359,7 @@ function App() {
       </header>
 
       <section className="editor-section">
-        <textarea
-          className="code-editor"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          spellCheck={false}
-        />
+        <CodeEditor value={code} onChange={setCode} />
 
         <div className="controls-row">
           <label className="select-field">
@@ -394,8 +431,8 @@ function App() {
             <p className="remark-help">
               열마다 있는 <strong>최적화 기록</strong>은 컴파일러가 그 레벨에서 직접 남긴 것입니다.{' '}
               <span className="remark-applied">적용</span>은 실제로 한 최적화,{' '}
-              <span className="remark-missed">놓침</span>은 하려다 못 한 최적화이고, 앞의 숫자는 소스 코드의 줄
-              번호입니다.
+              <span className="remark-missed">놓침</span>은 하려다 못 한 최적화이고, 앞의 숫자는 위 코드 입력창 왼쪽에
+              표시된 줄 번호입니다.
             </p>
           )}
           <div className="results-section">
