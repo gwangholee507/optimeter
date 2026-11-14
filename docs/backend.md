@@ -15,7 +15,10 @@ Spring Boot 진입점. `main()`에서 `SpringApplication.run()`을 호출해 내
 - `optimeter.allowed-hosts` — `localhost`나 IP 주소가 아닌 이름으로 접속해야 할 때 그 이름을 쉼표로 구분해 적습니다
   (기본값은 비어 있음, 환경 변수 `OPTVIS_ALLOWED_HOSTS`). 아래 [`HostHeaderFilter`](#hostheaderfilter) 참고.
 - jar 안에 `static/` 폴더가 있으면(= `bundle` 프로필로 빌드한 경우) Spring Boot가 그 안의 화면 파일을
-  `/`에서 자동으로 내보냅니다. 이를 위한 별도 코드는 없습니다.
+  `/`에서 자동으로 내보냅니다 (`/`는 `index.html`로 넘김).
+- `spring.web.resources.cache` — 이름에 해시가 없는 화면 파일(`index.html`, `favicon.svg` 등)에
+  `Cache-Control: no-cache`를 붙이고 `Last-Modified`는 보내지 않습니다. 해시가 붙은 `/assets/*` 파일은
+  아래 [`StaticResourceConfig`](#staticresourceconfig)에서 따로 설정합니다.
 
 ---
 
@@ -381,6 +384,33 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 
 ---
 
+## `StaticResourceConfig`
+**파일**: [`backend/src/main/java/.../config/StaticResourceConfig.java`](../backend/src/main/java/com/compareopt/optvisualizer/config/StaticResourceConfig.java)
+
+jar에 묶인 화면 파일을 브라우저가 얼마나 캐시할지 정합니다. `application.yml`의 `spring.web.resources.cache`와 함께 동작합니다.
+
+| 경로 | 예 | `Cache-Control` | 설정한 곳 |
+|---|---|---|---|
+| `/`, `/index.html` 등 이름에 해시가 없는 파일 | `favicon.svg` | `no-cache` (`Last-Modified` 없음) | `application.yml` (Spring Boot 기본 핸들러 `/**`) |
+| `/assets/**` | `index-<hash>.js`, `index-<hash>.css` | `max-age=31536000, immutable` | `StaticResourceConfig.addResourceHandlers()` |
+| `/api/**` | | 없음 (바꾸지 않음) | — |
+
+- **왜 필요한가**: `Cache-Control` 없이 `Last-Modified`만 보내면 브라우저가 알아서 몇 시간씩 캐시합니다(추측 캐시).
+  그러면 새 버전 jar로 바꿔도 예전 `index.html`이 뜨고, 그 `index.html`이 가리키는 예전 `/assets` 파일은 새 jar에
+  없어서 브라우저 캐시에 남아 있지 않으면 빈 화면이 됩니다.
+- **`index.html` 등**: 이름이 버전마다 같으므로 `no-cache`로 브라우저가 쓸 때마다 다시 받게 합니다.
+  `Last-Modified`(`use-last-modified: false`)도 끕니다. 시각으로 "안 바뀜(304)"을 판단하면, 이전 버전 jar로 되돌린 경우처럼
+  파일 시각이 더 이른 쪽으로 바뀌었을 때 캐시해둔 다른 버전의 `index.html`이 그대로 쓰이기 때문입니다.
+  파일이 작고 이 PC에서 오므로 매번 통째로 보내도 부담이 없습니다.
+- **`/assets/**`**: Vite가 내용 해시를 파일 이름에 넣으므로 같은 주소의 파일은 내용이 바뀌지 않습니다. 그래서 1년 동안
+  다시 묻지 않게(`immutable`) 합니다. `assets`는 Vite의 `build.assetsDir` 기본값이라, `frontend/vite.config.js`에서 바꾸면
+  여기도 맞춰야 합니다.
+- `/assets/` 아래 없는 파일은 404이고 캐시 헤더가 붙지 않습니다 (404가 1년간 캐시되지 않음).
+- 확인: `StaticResourceCacheTest`(MockMvc, 테스트용 화면 파일은 `src/test/resources/static`). MockMvc는 `/` → `index.html`
+  넘김을 실제로 따라가지 않으므로, jar를 띄워 `/`의 헤더까지 보는 것은 CI의 스모크 테스트가 합니다.
+
+---
+
 ## `GlobalExceptionHandler`
 **파일**: [`backend/src/main/java/.../exception/GlobalExceptionHandler.java`](../backend/src/main/java/com/compareopt/optvisualizer/exception/GlobalExceptionHandler.java)
 
@@ -467,5 +497,5 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 - 버전은 `revision` 속성(기본 `0.0.1-SNAPSHOT`)입니다. 릴리스 빌드는 `-Drevision=1.2.3`으로 지정합니다
   ([release.md](./release.md) 참고).
 - CI는 세 OS에서 이 프로필로 jar를 만든 뒤 [`.github/scripts/smoke-test.sh`](../.github/scripts/smoke-test.sh)로
-  실제로 띄워서 화면(`/`)과 API(`/api/compilers`, `/api/compile`)가 한 서버에서 나오는지, 낯선 `Host`로 온 요청이
-  403으로 거부되는지 확인합니다.
+  실제로 띄워서 화면(`/`)과 API(`/api/compilers`, `/api/compile`)가 한 서버에서 나오는지, 화면 파일에 캐시 헤더
+  (`/`는 `no-cache`, `/assets/*`는 `immutable`)가 붙는지, 낯선 `Host`로 온 요청이 403으로 거부되는지 확인합니다.

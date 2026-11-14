@@ -42,6 +42,17 @@ SCRIPT_PATH="$(grep -o '/assets/[^"]*\.js' smoke-index.html | head -n 1)"
 curl -fsS "$BASE$SCRIPT_PATH" -o /dev/null || fail "GET $SCRIPT_PATH 실패"
 echo "✅ 화면: / 와 $SCRIPT_PATH"
 
+# 1-1) 캐시: index.html은 매번 다시 받고, 이름에 해시가 붙은 /assets 파일은 오래 캐시한다 (StaticResourceConfig)
+#      그래야 새 버전 jar로 바꿨을 때 예전 index.html이 브라우저 캐시에서 뜨지 않는다.
+cache_control() {
+    curl -fsS -o /dev/null -D - "$1" | tr -d '\r' | grep -i '^cache-control:' | cut -d' ' -f2- || true
+}
+INDEX_CACHE="$(cache_control "$BASE/")"
+[ "$INDEX_CACHE" = "no-cache" ] || fail "/ 의 Cache-Control이 no-cache가 아님: '$INDEX_CACHE'"
+ASSET_CACHE="$(cache_control "$BASE$SCRIPT_PATH")"
+[ "$ASSET_CACHE" = "max-age=31536000, immutable" ] || fail "$SCRIPT_PATH 의 Cache-Control이 장기 캐시가 아님: '$ASSET_CACHE'"
+echo "✅ 캐시: / 는 no-cache, $SCRIPT_PATH 는 immutable"
+
 # 2) API: 컴파일러 목록
 grep -q '"id":"clang"' smoke-compilers.json || fail "/api/compilers 응답에 clang이 없음"
 echo "✅ API: /api/compilers"

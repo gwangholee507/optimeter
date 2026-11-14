@@ -6,6 +6,22 @@ server:
   # --server.address=0.0.0.0 (또는 환경 변수 SERVER_ADDRESS=0.0.0.0)으로 바꿔서 실행한다.
   address: 127.0.0.1
 
+spring:
+  web:
+    resources:
+      # jar에 넣은 화면 파일 중 이름에 해시가 없는 것(index.html, favicon.svg 등)의 캐시 설정.
+      # 해시가 붙은 /assets/** 파일은 StaticResourceConfig에서 따로 오래 캐시하게 한다.
+      cache:
+        # Cache-Control이 없으면 브라우저가 Last-Modified를 보고 알아서 몇 시간씩 캐시해버려서,
+        # 새 버전 jar로 바꿔도 예전 index.html(= 지금은 없는 예전 /assets 파일을 가리킴)이 뜰 수 있다.
+        # no-cache: 브라우저가 쓸 때마다 서버에 다시 받아간다.
+        cachecontrol:
+          no-cache: true
+        # Last-Modified로 "안 바뀜(304)"을 판단하면, 이전 버전 jar로 되돌렸을 때처럼 파일 시각이 더 이른 쪽으로
+        # 바뀌는 경우 예전에 캐시한 다른 버전 index.html을 그대로 쓰게 된다. 이 파일들은 작고 이 PC에서 오므로
+        # 비교 없이 매번 통째로 보낸다.
+        use-last-modified: false
+
 optimeter:
   # 주소창에 localhost나 IP 주소가 아닌 이름을 넣어 접속해야 할 때, 그 이름을 쉼표로 구분해 적는다 (포트는 빼고).
   #   예) --optimeter.allowed-hosts=my-mac.local  또는  OPTVIS_ALLOWED_HOSTS=my-mac.local,lab-pc

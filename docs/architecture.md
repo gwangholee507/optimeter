@@ -64,7 +64,10 @@
 ```
 
 - **jar**: `bundle` Maven 프로필이 `frontend`를 빌드해서(`frontend/dist`) jar의 `static/` 아래에 넣습니다.
-  Spring Boot는 `static/`의 파일을 자동으로 내보내므로 별도 코드가 없습니다.
+  Spring Boot는 `static/`의 파일을 자동으로 내보내고, 서버 쪽에서는 브라우저 캐시만 정해둡니다.
+  `index.html`은 `Cache-Control: no-cache`로 매번 다시 받게 하고, 파일 이름에 내용 해시가 붙은 `/assets/*`는
+  1년간 캐시하게 합니다(`max-age=31536000, immutable`). 그래서 새 버전 jar로 바꾸면 곧바로 새 `index.html`과
+  거기서 가리키는 새 파일들이 쓰입니다 ([backend.md의 `StaticResourceConfig`](./backend.md#staticresourceconfig) 참고).
 - **개발**: `vite.config.js`의 `server.proxy`가 `/api` 요청만 백엔드로 넘깁니다.
 
 두 경우 모두 브라우저 입장에서는 화면과 API가 같은 출처라서 CORS 설정이 필요 없고, 일부러 두지 않았습니다
