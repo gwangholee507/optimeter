@@ -18,29 +18,33 @@
    │  4. CompilerRegistry.resolve(compilerId) 로 요청받은 id를 실제 실행 파일 경로 + 언어(Language) +
    │     명령줄 규칙(Toolchain)으로 변환
    │       (모르는 id거나 서버에 설치 안 돼 있으면 400 에러 — 사용자 입력을 커맨드에 그대로 쓰지 않음)
-   │  5. 임시 디렉터리 생성 → 언어별 파일 이름(C는 input.c, C++은 input.cpp, Rust는 input.rs)으로 저장
-   │  6. Toolchain이 정한 레벨(clang/gcc는 O0~O3, rustc는 0~3, s, z) 각각에 대해 runOneLevel() 반복 호출
-   │       (컴파일러 실행은 전부 platform.ProcessRunner를 거침 — 임시 디렉터리를 작업 디렉터리로 두고 실행)
+   │  5. 임시 디렉터리 안에 레벨마다 폴더를 만들고, 언어별 파일 이름(C는 input.c, C++은 input.cpp, Rust는 input.rs)으로 저장
+   │  6. Toolchain이 정한 레벨(clang/gcc는 O0~O3, rustc는 0~3, s, z)을 동시에 컴파일 (buildLevels)
+   │       (처음 쓰는 컴파일러는 첫 레벨만 먼저 해서 디스크의 파일을 OS 캐시에 올린 뒤 나머지를 동시에)
+   │       (컴파일러 실행은 전부 platform.ProcessRunner를 거침 — 그 레벨의 폴더를 작업 디렉터리로 두고 실행)
    │       (인자는 Toolchain이 만듦 — 아래는 clang/gcc 기준, rustc는 어셈블리와 오브젝트 파일을 한 번에 만듦)
    │       - {compiler} -S -O{n} → 어셈블리(.s) 생성. clang/gcc는 remark 인자를 함께 넘겨서
    │         "이 줄에서 무슨 최적화를 했다/못 했다"는 기록(remark)을 출력으로 받음
-   │       - {compiler} -c -O{n} → 오브젝트 파일(.o) 생성 (크기 비교용)
-   │       - runBenchmark=true면 {compiler} -O{n} → 실행 파일(.exe) 링크 후 5회 실행,
-   │         최솟값을 실행 시간으로 채택 (main() 없어서 링크 실패하면 조용히 건너뜀)
-   │  7. 임시 디렉터리 정리
+   │       - {compiler} -c out.s → 그 어셈블리를 어셈블만 해서 오브젝트 파일(.o) 생성 (크기 비교용)
+   │       - runBenchmark=true면 {compiler} out.o → 그 오브젝트를 링크만 해서 실행 파일(.exe) 생성
+   │         (main() 없어서 링크 실패하면 조용히 건너뜀)
+   │  7. runBenchmark=true면 컴파일이 모두 끝난 뒤 한 레벨씩 실행 파일을 5회 실행, 최솟값을 실행 시간으로 채택
+   │  8. 임시 디렉터리 정리
    ▼
 [backend] List<OptimizationResult> 를 JSON으로 응답
    │       (레벨 id·열 제목·설명, 컴파일러 id/label, 최적화 remark, 실행 시간 포함 — 레벨 정보와 remark는 Toolchain이 정함)
    ▼
 [frontend/src/App.jsx] setResults(data)
-   │  8. "지시어 숨기기"가 켜져 있으면(기본값) assemblyFilter.js 의 filterAssembly() 로
+   │  9. "지시어 숨기기"가 켜져 있으면(기본값) assemblyFilter.js 의 filterAssembly() 로
    │     .cfi_*, .section 같은 지시어와 디버그·예외 처리 섹션을 걸러낸 사본(shownResults)을 만듦
    │     (끄고 켜도 다시 컴파일하지 않음)
    │     첫 번째 결과(clang/gcc는 -O0)를 기준(baseline)으로 삼아
    │     ("비교 기준" 버튼으로 다른 레벨을 고르면 그 레벨이 기준 — 다시 컴파일하면 첫 레벨로 돌아감)
    ▼
 [frontend/src/OptimizationColumn + AssemblyView]
-   │  9. diff.js 의 diffLines() 로 기준 레벨 대비 달라진 줄 계산
+   │ 10. diff.js 의 diffLines() 로 기준 레벨 대비 달라진 줄 계산
+   │     (diffRunner.js가 비교마다 Web Worker를 띄워서 계산 — 수천 줄을 비교하는 동안 화면이 멈추지 않음.
+   │      결과가 오기 전에는 열에 "비교 중…"을 표시하고 어셈블리는 강조 없이 먼저 보여줌)
    ▼
 [화면] 레벨별 컬럼을 나란히 렌더링 (열 제목과 ⓘ 설명은 응답에 담긴 값 그대로),
        열마다 컴파일러가 남긴 최적화 기록(적용/놓침), 바뀐 줄은 초록색 하이라이트, 실행 시간은 ⏱ 배지로 표시
@@ -99,7 +103,7 @@ OS마다 사정이 다릅니다. 이런 차이는 아래 세 곳에만 모아두
 
 그 밖에 OS 차이를 **분기 없이** 피해 가는 장치들:
 
-- 컴파일러에는 `input.c`, `out-O0.s` 같은 **상대 경로**만 넘기고, 작업 디렉터리를 임시 디렉터리로 지정합니다.
+- 컴파일러에는 `input.c`, `out-O0.s` 같은 **상대 경로**만 넘기고, 작업 디렉터리를 임시 디렉터리 안의 레벨별 폴더로 지정합니다.
   경로 구분자(`/` vs `\`)나 임시 디렉터리 위치, 경로에 섞인 공백·한글(Windows 사용자 이름 등)이 컴파일러
   인자와 에러 메시지에 나타나지 않습니다.
 - 실행 파일 이름은 어디서나 `out-O{n}.exe`입니다. Windows에서는 확장자가 필요하고, 다른 OS에서는 있어도 무해합니다.
@@ -144,7 +148,8 @@ clang/gcc와 C++의 clang++/g++는 GCC식 명령줄을 쓰는 `GccStyleToolchain
 
 사용자가 입력하는 코드에는 보통 `main()` 함수가 없습니다 (`square`, `sum_loop` 같은 순수 함수만 있음).
 `main()`이 없으면 실행 파일로 **링크**할 수 없어서(`ld: symbol(s) not found for "_main"`),
-링크 단계 없이 컴파일만 하는 `-c` 옵션으로 오브젝트 파일을 만들어 크기를 비교합니다.
+링크 단계 없이 어셈블리까지만 하는 `-c` 옵션으로 오브젝트 파일을 만들어 크기를 비교합니다
+(화면에 보여주는 어셈블리 파일을 그대로 어셈블하므로, 크기와 어셈블리가 같은 컴파일의 결과입니다).
 이 방식은 링크 오버헤드가 섞이지 않아서 오히려 "순수 코드젠 크기" 비교에는 더 적합합니다.
 Rust는 실행 파일에 표준 라이브러리가 통째로 들어가서(작은 프로그램도 수백 KB) 오브젝트 파일로 재는 편이 더 유리합니다.
 

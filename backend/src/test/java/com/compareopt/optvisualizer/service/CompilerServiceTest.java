@@ -20,6 +20,8 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -225,8 +227,8 @@ class CompilerServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"clang", "gcc"})
     void remark를_내게_하는_인자는_어셈블리를_바꾸지_않는다(String compilerId, @TempDir Path tempDir) throws Exception {
-        // 화면의 어셈블리는 remark 인자를 붙인 명령으로 만든다. 인자 때문에 코드가 달라지면 크기를 재는 오브젝트 파일
-        // (remark 인자 없이 만든다)과 어긋나므로, 인자 없이 직접 컴파일한 결과와 같은지 확인한다.
+        // 화면의 어셈블리(와 크기를 재는 오브젝트 파일)는 remark 인자를 붙인 명령으로 만든다. 인자 때문에 코드가
+        // 달라지면 사용자가 같은 레벨로 직접 컴파일한 결과와 어긋나므로, 인자 없이 직접 컴파일한 결과와 같은지 확인한다.
         RequiredCompilers.assumeAvailable(registry, compilerId);
         CompilerRegistry.ResolvedCompiler compiler = registry.resolve(compilerId);
         Files.writeString(tempDir.resolve("input.c"), INLINING_CODE);
@@ -545,6 +547,50 @@ class CompilerServiceTest {
         assertThat(compilations).hasValue(4);
     }
 
+    @Test
+    void 처음_쓰는_컴파일러는_첫_레벨을_혼자_컴파일한_뒤_나머지_레벨을_동시에_컴파일한다() {
+        assumeTrue(Runtime.getRuntime().availableProcessors() >= 2);
+        OverlapRecordingRunner runner = new OverlapRecordingRunner();
+        CompilerService service = new CompilerService(registry, runner);
+
+        List<OptimizationResult> results = service.compareOptimizationLevels(INLINING_CODE, "clang", false);
+
+        assertThat(results).extracting(OptimizationResult::getLevel).containsExactly("O0", "O1", "O2", "O3");
+        assertThat(results).allSatisfy(r -> assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue());
+        // 첫 레벨은 디스크의 파일을 OS 캐시에 올려두는 역할이라 다른 레벨과 겹치지 않는다
+        assertThat(runner.overlappedLevelDirs).doesNotContain("level-O0").contains("level-O1", "level-O2");
+    }
+
+    @Test
+    void 한_번_컴파일에_성공한_컴파일러는_첫_레벨부터_동시에_컴파일한다() {
+        assumeTrue(Runtime.getRuntime().availableProcessors() >= 2);
+        OverlapRecordingRunner runner = new OverlapRecordingRunner();
+        CompilerService service = new CompilerService(registry, runner);
+        service.compareOptimizationLevels(INLINING_CODE, "clang", false);
+        runner.overlappedLevelDirs.clear();
+
+        List<OptimizationResult> results = service.compareOptimizationLevels(INLINING_CODE, "clang", false);
+
+        assertThat(results).allSatisfy(r -> assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue());
+        assertThat(runner.overlappedLevelDirs).contains("level-O0");
+    }
+
+    @Test
+    void 실행_시간은_컴파일이_모두_끝난_뒤에_한_레벨씩_잰다() {
+        OverlapRecordingRunner runner = new OverlapRecordingRunner();
+        CompilerService service = new CompilerService(registry, runner);
+        String code = """
+                int add(int a, int b) { return a + b; }
+                int main(void) { return add(1, 2); }
+                """;
+
+        List<OptimizationResult> results = service.compareOptimizationLevels(code, "clang", true);
+
+        assertThat(results).allSatisfy(r -> assertThat(r.getExecutionTimeMs()).as(r.getExecutionError()).isNotNull());
+        // 실행하는 동안에는 컴파일러도, 다른 레벨의 프로그램도 돌지 않는다
+        assertThat(runner.maxProcessesDuringExecution).hasValue(1);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "pub struct A;\nimpl A { pub fn main(&self) -> i32 { 1 } }\npub fn keep() -> i32 { A.main() }",
@@ -606,6 +652,52 @@ class CompilerServiceTest {
             assertThat(r.getErrorMessage()).contains("input.rs");
             assertThat(r.getErrorMessage()).doesNotContain("opt-visualizer-");
         });
+    }
+
+    /**
+     * 실제로 프로세스를 실행하면서, 어느 레벨의 프로세스가 다른 레벨과 겹쳐 돌았는지 기록한다.
+     * 레벨은 작업 디렉터리 이름(level-O0 등)으로 구분한다. 컴파일러가 아주 빨리 끝나면 동시에 시작해도 겹치지 않을 수
+     * 있어서, 컴파일 명령마다 시작 전에 조금 기다린다.
+     */
+    private static final class OverlapRecordingRunner extends ProcessRunner {
+        private static final long COMPILE_DELAY_MS = 200;
+
+        private final Set<String> runningLevelDirs = ConcurrentHashMap.newKeySet();
+        private final AtomicInteger runningProcesses = new AtomicInteger();
+        final Set<String> overlappedLevelDirs = ConcurrentHashMap.newKeySet();
+        final AtomicInteger maxProcessesDuringExecution = new AtomicInteger();
+
+        @Override
+        public ProcessResult run(List<String> command, Path workDir, Path toolDir, Duration timeout)
+                throws IOException, InterruptedException {
+            String levelDir = workDir.getFileName().toString();
+            synchronized (this) {
+                if (!runningLevelDirs.isEmpty()) {
+                    overlappedLevelDirs.add(levelDir);
+                    overlappedLevelDirs.addAll(runningLevelDirs);
+                }
+                runningLevelDirs.add(levelDir);
+            }
+            runningProcesses.incrementAndGet();
+            try {
+                Thread.sleep(COMPILE_DELAY_MS);
+                return super.run(command, workDir, toolDir, timeout);
+            } finally {
+                runningProcesses.decrementAndGet();
+                runningLevelDirs.remove(levelDir);
+            }
+        }
+
+        @Override
+        public ProcessResult runDiscardingOutput(List<String> command, Path workDir, Path toolDir, Duration timeout)
+                throws IOException, InterruptedException {
+            maxProcessesDuringExecution.accumulateAndGet(runningProcesses.incrementAndGet(), Math::max);
+            try {
+                return super.runDiscardingOutput(command, workDir, toolDir, timeout);
+            } finally {
+                runningProcesses.decrementAndGet();
+            }
+        }
     }
 
     private static boolean isAppliedInlining(OptRemark remark) {

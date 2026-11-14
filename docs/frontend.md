@@ -21,6 +21,24 @@
   - 덜어낸 뒤의 표가 `MAX_DIFF_CELLS`(1억 5천만 칸, 약 300MB)를 넘으면 `null`
 - **복잡도**: O(n·m). Rust는 짧은 프로그램도 `opt-level=0`에서 수만 줄이 나오므로 표를 줄 수의 곱에 맞춰 무한정 키울 수 없습니다.
   `HashMap`을 쓰는 17줄 프로그램(16,767줄과 3,929줄 비교)은 한 쌍에 약 0.2초 걸립니다.
+  화면에서는 화면 스레드가 아니라 Web Worker에서 부릅니다 (아래 `diffRunner.js`).
+
+---
+
+## `diffRunner.js` / `diff.worker.js`
+**파일**: [`frontend/src/diffRunner.js`](../frontend/src/diffRunner.js), [`frontend/src/diff.worker.js`](../frontend/src/diff.worker.js)
+
+`diffLines()`를 Web Worker에서 돌리는 실행기. 비교는 O(n·m)이라 어셈블리가 수천 줄이면 한 쌍에 수백 ms가 걸리고,
+화면 스레드에서 하면 그동안 화면이 멈춥니다 (표준 헤더를 쓰는 C++ 프로그램에서 "지시어 숨기기"를 끄면 세 열 비교에 약 1.4초).
+`diff.worker.js`는 `{ base, target }` 두 어셈블리 텍스트를 받아 `diffLines()`의 결과를 그대로 돌려주는 worker입니다.
+
+### `createDiffRunner({ createWorker, maxConcurrent }) : (base, target) => { promise, cancel }`
+- 비교마다 worker를 새로 띄우고 결과를 받으면 닫습니다. 그래서 더 기다릴 필요가 없어진 비교(기준 레벨이나 "지시어 숨기기"를 바꾼 경우 등)는
+  `cancel()`로 계산 도중에도 바로 멈춥니다. `cancel()`한 비교의 `promise`는 이행되지 않습니다
+- 동시에 띄우는 worker는 `MAX_CONCURRENT_DIFFS`(2)개까지이고, 나머지는 기다렸다가 앞에서부터 시작합니다.
+  비교 하나가 LCS 표에 수백 MB까지 쓸 수 있어서(`MAX_DIFF_CELLS`) 적게 둡니다
+- worker를 띄우지 못하거나 worker가 실패하면 `console.warn`을 남기고 화면 스레드에서 계산합니다 (느려도 결과는 같음)
+- `createWorker`, `maxConcurrent`는 테스트에서 가짜 worker를 넣으려고 받습니다. 화면은 기본값으로 만든 `runDiff`를 씁니다
 
 ---
 
@@ -178,11 +196,13 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과입니다
 (기본은 응답의 첫 번째 레벨, `BaseLevelSelector`로 고르면 그 레벨).
 `result`와 `base`는 `App`의 `shownResults`에서 오므로, "지시어 숨기기"가 켜져 있으면 `assembly`가 이미 걸러진 텍스트입니다.
-`memo`로 감싸고 `diffLines()`도 `useMemo`로 감쌌습니다. 에디터에 글자를 칠 때마다 `App`이 다시 그려지는데, 어셈블리가 수만 줄이면
-diff가 오래 걸려서 입력이 멈추기 때문입니다. 결과나 기준이 바뀔 때만 다시 계산합니다.
+`memo`로 감싸서 결과나 기준이 바뀔 때만 다시 그립니다 (에디터에 글자를 칠 때마다 `App`이 다시 그려지기 때문).
+기준과의 비교는 `useDiffSummary(baseAssembly, assembly)` 훅이 `runDiff()`로 worker에 맡깁니다. 두 어셈블리가 바뀌면 이전 비교를 취소하고 새로 시작하며,
+결과가 오기 전에는 `undefined`, 비교를 건너뛰었거나 비교하지 않으면 `null`을 돌려줍니다.
 - 헤더에 `result.levelLabel`(예: `-O0`) + `InfoTooltip(result.levelDescription)`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
 - 기준 레벨 자신이면 헤더에 "기준" 배지를 붙이고 테두리를 강조색(`opt-column-base`)으로 표시
 - 기준 레벨이 아니고 기준과 자신 모두 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs {base.levelLabel})` 배지를 헤더에 추가.
+  결과를 기다리는 동안에는 회색 "(비교 중…)"(`diff-pending`)을 표시하고 어셈블리는 강조 없이 먼저 보여줌.
   `diffLines()`가 `null`을 돌려주면 대신 회색 "(줄이 너무 많아 비교 생략)"을 표시
 - `result.executionTimeMs`가 있으면(= `runBenchmark=true`였고 측정 성공) `⏱ 실행 {formatMs(...)}` 배지 추가
 - 측정을 시도했지만 실패했으면(주로 `main()` 없음, Rust는 패닉으로 끝난 경우도 포함) `executionError`를 툴팁으로 붙인

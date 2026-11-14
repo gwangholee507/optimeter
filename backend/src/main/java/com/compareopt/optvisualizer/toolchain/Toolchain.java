@@ -45,8 +45,11 @@ public interface Toolchain {
      * 어셈블리 파일과 크기 비교용 오브젝트 파일을 만드는 명령들의 인자. 앞에서부터 차례로 실행한다.
      *
      * 첫 번째 명령이 어셈블리를 만들고, 이 명령이 실패하면 그 레벨은 컴파일 실패가 된다.
+     * 뒤의 명령은 앞 명령이 만든 파일을 써도 된다 (예: 어셈블리를 어셈블해서 오브젝트를 만든다).
      * 한 번의 실행으로 둘 다 만들 수 있는 컴파일러는 명령을 하나만 돌려준다.
      * main() 같은 진입점이 없는 코드에서도 성공해야 한다.
+     *
+     * 레벨마다 작업 디렉터리가 따로 있고 레벨끼리 동시에 실행될 수 있다.
      */
     List<List<String>> codegenCommands(OptLevel level, String sourceFile, String asmFile, String objFile);
 
@@ -60,8 +63,11 @@ public interface Toolchain {
         return Optional.empty();
     }
 
-    /** 실행 시간 측정용 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 된다 (실행 측정만 건너뜀). */
-    List<String> executableArgs(OptLevel level, String sourceFile, String outputFile);
+    /**
+     * 실행 시간 측정용 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 된다 (실행 측정만 건너뜀).
+     * codegenCommands가 성공한 뒤 같은 작업 디렉터리에서 실행하므로, 그 레벨의 오브젝트 파일(objFile)을 링크해도 된다.
+     */
+    List<String> executableArgs(OptLevel level, String sourceFile, String objFile, String outputFile);
 
     /**
      * 프로그램의 종료 코드를 보고 실행 시간을 믿을 수 없으면 그 이유를 돌려준다.

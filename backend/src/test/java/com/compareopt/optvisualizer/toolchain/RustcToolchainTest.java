@@ -98,8 +98,11 @@ class RustcToolchainTest {
                 "--edition=2021", "-C", "symbol-mangling-version=v0", "-C", "codegen-units=1",
                 "-C", "opt-level=2", "-o", "out-2.exe", "input.rs");
 
-        assertThat(rustc.forSource(PROGRAM).executableArgs(level2, "input.rs", "out-2.exe")).isEqualTo(expected);
-        assertThat(rustc.forSource(LIBRARY).executableArgs(level2, "input.rs", "out-2.exe")).isEqualTo(expected);
+        // 오브젝트 파일만 링크할 수 없어서 소스부터 빌드한다
+        assertThat(rustc.forSource(PROGRAM).executableArgs(level2, "input.rs", "out-2.o", "out-2.exe"))
+                .isEqualTo(expected);
+        assertThat(rustc.forSource(LIBRARY).executableArgs(level2, "input.rs", "out-2.o", "out-2.exe"))
+                .isEqualTo(expected);
     }
 
     @Test

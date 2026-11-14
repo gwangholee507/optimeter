@@ -31,15 +31,17 @@ class GccStyleToolchainTest {
     void 어셈블리_오브젝트_실행파일_인자를_GCC식으로_만든다() {
         OptLevel o2 = clang.levels().get(2);
 
-        // 첫 번째 명령이 어셈블리(와 최적화 remark), 두 번째 명령이 오브젝트 파일을 만든다
+        // 첫 번째 명령이 어셈블리(와 최적화 remark)를 만들고, 두 번째 명령은 그 어셈블리를 어셈블만 해서
+        // 오브젝트 파일을 만든다 (소스부터 다시 컴파일하지 않는다)
         assertThat(clang.codegenCommands(o2, "input.c", "out-O2.s", "out-O2.o")).containsExactly(
                 List.of("-S", "-O2", "-Rpass=.*", "-Rpass-missed=.*", "input.c", "-o", "out-O2.s"),
-                List.of("-c", "-O2", "input.c", "-o", "out-O2.o"));
+                List.of("-c", "out-O2.s", "-o", "out-O2.o"));
         assertThat(gcc.codegenCommands(o2, "input.c", "out-O2.s", "out-O2.o")).containsExactly(
                 List.of("-S", "-O2", "-fopt-info-optimized-missed", "input.c", "-o", "out-O2.s"),
-                List.of("-c", "-O2", "input.c", "-o", "out-O2.o"));
-        assertThat(clang.executableArgs(o2, "input.cpp", "out-O2.exe"))
-                .containsExactly("-O2", "input.cpp", "-o", "out-O2.exe");
+                List.of("-c", "out-O2.s", "-o", "out-O2.o"));
+        // 실행 파일은 그 오브젝트를 링크만 한다
+        assertThat(clang.executableArgs(o2, "input.cpp", "out-O2.o", "out-O2.exe"))
+                .containsExactly("out-O2.o", "-o", "out-O2.exe");
     }
 
     @Test

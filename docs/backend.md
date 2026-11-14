@@ -102,32 +102,48 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
 1. `CompilerRegistry.resolve(compilerId)`로 사용할 컴파일러의 실제 경로, 언어, toolchain을 얻고,
    `Toolchain.forSource(sourceCode)`로 이 코드에 맞는 toolchain을 고름 (실패 시 예외)
 2. `Files.createTempDirectory()`로 임시 작업 디렉터리 생성
-3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`, C++은 `input.cpp`, Rust는 `input.rs`)으로 저장
-4. `Toolchain.levels()`(clang/gcc는 `O0`~`O3`의 `OptLevel`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록.
-   실패했을 때 `Toolchain.correctedBy()`가 다른 toolchain을 돌려주면 그 레벨을 다시 컴파일하고 남은 레벨에도 그 toolchain을 씀
-5. `retryTimedOutLevels()`: 다른 레벨이 성공했으면 컴파일 시간 초과로 실패한 레벨을 한 번 더 컴파일. 첫 컴파일은 디스크를 읽느라 제한 시간을 넘길 수 있지만
-   읽은 내용이 OS 캐시에 남아서 다시 하면 금방 끝나기 때문. 모든 레벨이 시간 초과면 정말 오래 걸리는 코드이므로 다시 하지 않음
-6. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
-7. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
+3. `buildLevels()`로 모든 레벨을 컴파일(실행 시간도 잴 때는 실행 파일까지 만듦)
+4. 레벨 순서대로 `benchmarkExecution()`으로 실행 시간을 재고(실행 파일이 있을 때만), 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록.
+   실행 시간은 컴파일이 모두 끝난 뒤에 한 레벨씩 잼 — 다른 프로세스와 CPU를 나눠 쓰면 측정값이 흔들리기 때문
+5. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
+6. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
 
-### `runOneLevel(...) : OptimizationResult` (private)
-특정 최적화 레벨 하나에 대한 컴파일(및 옵트인 시 실행 벤치마크)을 수행.
+### `buildLevels(...) : List<LevelBuild>` (private)
+`Toolchain.levels()`(clang/gcc는 `O0`~`O3`의 `OptLevel`)를 모두 컴파일해서 그 순서대로 돌려줌. 레벨끼리는 서로 기다릴 이유가 없어서 **동시에** 컴파일합니다.
+1. 레벨마다 작업 디렉터리(`level-O0`, `level-O1` …)를 따로 만들고 사용자 코드를 `Language.sourceFileName()`
+   (C는 `input.c`, C++은 `input.cpp`, Rust는 `input.rs`)으로 저장.
+   rustc는 레벨과 상관없이 같은 이름의 중간 파일(`input.input.{해시}-cgu.0.rcgu.o`)을 작업 디렉터리에 써서, 한 곳에서 동시에 컴파일하면 서로 덮어쓰기 때문
+2. 이 서버에서 처음 쓰는 컴파일러면 첫 레벨만 먼저 `buildLevel()`로 컴파일. 새로 켠 컴퓨터에서는 컴파일러와 표준 라이브러리를 디스크에서 읽는
+   첫 컴파일이 수십 초 걸릴 수 있는데(CI의 새 VM에서 rustc 약 78초), 모든 레벨을 한꺼번에 시작하면 다 같이 시간 초과되어 다시 해 볼 근거가 남지 않음.
+   첫 레벨이 읽어 둔 파일은 OS 캐시에 남아서 나머지는 금방 끝남. 첫 레벨에서 `Toolchain.correctedBy()`로 바로잡은 toolchain이 있으면 나머지 레벨에도 그것을 씀
+3. 남은 레벨을 스레드 풀에서 동시에 `buildLevel()` (동시에 띄우는 컴파일러 수는 CPU 코어 수 이하).
+   첫 레벨도 시간 초과였으면 디스크가 아주 느린 상황이라 예전처럼 한 레벨씩 함
+4. 한 레벨이라도 성공하면 그 컴파일러를 "캐시에 올라온 컴파일러"(`warmedUpCompilers`)로 기억해서, 다음 요청부터는 첫 레벨부터 모두 동시에 컴파일함
+5. `retryTimedOutLevels()`: 다른 레벨이 성공했으면 컴파일 시간 초과로 실패한 레벨을 한 레벨씩 한 번 더 컴파일. 첫 컴파일이 디스크를 읽느라,
+   또는 동시에 컴파일한 레벨끼리 CPU를 나눠 쓰느라 제한 시간을 넘겼을 수 있기 때문. 모든 레벨이 시간 초과면 정말 오래 걸리는 코드이므로 다시 하지 않음
+
+결과의 컴파일 시간(`compileTimeMs`)은 그 레벨의 명령이 걸린 시간이라, 동시에 컴파일하는 다른 레벨과 CPU를 나눠 쓴 만큼 혼자 컴파일할 때보다 조금 길게 나올 수 있습니다.
+
+### `buildLevel(...) : LevelBuild` / `compileLevel(...) : OptimizationResult` (private)
+특정 최적화 레벨 하나를 그 레벨의 작업 디렉터리에서 컴파일. `buildLevel()`은 `compileLevel()`이 실패했을 때 `Toolchain.correctedBy()`가
+다른 toolchain을 돌려주면 그것으로 한 번 더 컴파일하고, 실행 시간도 잴 때는 `linkExecutable()`로 실행 파일을 만듭니다.
+`compileLevel()`이 하는 일:
 1. `Toolchain.codegenCommands()`의 첫 번째 명령으로 어셈블리 생성 (`{compiler} -S -O{level} input.c -o out.s`).
    clang/gcc는 이 명령에 remark 인자가 붙어서 최적화 remark도 함께 출력됨
    - 실패 시 컴파일러 출력을 그대로 담아 `OptimizationResult.failure()` 반환
-2. 남은 명령으로 오브젝트 파일 생성 (`{compiler} -c -O{level} input.c -o out.o`, 크기 비교용, `main()` 없어도 동작).
+2. 남은 명령으로 오브젝트 파일 생성 (`{compiler} -c out.s -o out.o` — 방금 만든 어셈블리를 어셈블만 함. 크기 비교용, `main()` 없어도 동작).
    rustc는 첫 번째 명령이 둘 다 만들어서 남은 명령이 없음
-3. 오브젝트 파일 크기(`Files.size()`)를 읽고, 실패해도 무시(0으로 처리)하고 계속 진행
+3. 오브젝트 파일 크기(`Files.size()`)를 읽고, 실패해도 결과는 보여주고 크기만 0으로 둠(로그에 경고를 남김)
 4. 어셈블리 파일 내용을 문자열로 읽어서(줄바꿈은 `\n`으로 통일) `OptimizationResult.success()` 생성하고,
    `Toolchain.assemblyNotice()`가 돌려준 안내 문구가 있으면 `notice`에 붙임
 5. `Toolchain.remarks()`로 1번 명령의 출력에서 최적화 remark를 뽑아 `remarks`에 붙임.
    레벨당 200건(`MAX_REMARKS_PER_LEVEL`)까지만 담고 나머지는 개수만 `omittedRemarkCount`에 남김
    (함수가 수백 개인 코드는 인라이닝 remark만 수천 건이 됨). remark를 내지 않는 계열(rustc)이면 `remarks`는 `null`로 남음
-6. `runBenchmark=true`면 `benchmarkExecution()`을 호출해 실행 시간을 결과에 붙임
 
-### `benchmarkExecution(...) : ExecutionOutcome` (private)
-`Toolchain.executableArgs()`(`{compiler} -O{level} input.c -o out.exe`)로 링크를 시도한 뒤(성공해야 `main()`이 있다는 뜻),
-실행 파일을 `BENCHMARK_RUNS`(5)번 실행해서 걸린 시간(나노초) 중 최솟값을 채택합니다.
+### `linkExecutable(...)` / `benchmarkExecution(...) : ExecutionOutcome` (private)
+`linkExecutable()`은 `Toolchain.executableArgs()`로 실행 파일을 만듭니다(성공해야 `main()`이 있다는 뜻).
+clang/gcc는 `compileLevel()`이 만든 오브젝트를 링크만 하고(`{compiler} out.o -o out.exe`), rustc는 소스부터 다시 빌드합니다.
+`benchmarkExecution()`은 그 실행 파일을 `BENCHMARK_RUNS`(5)번 실행해서 걸린 시간(나노초) 중 최솟값을 채택합니다.
 - 링크 실패(대개 `main()` 없음) 시 컴파일 자체는 성공으로 두고 `executionError`만 채움 — 순수 함수만
   있는 코드에서도 어셈블리/크기 비교는 그대로 볼 수 있게 하기 위함
   - `linkFailureMessage()`가 안내 문구 뒤에 링커의 원본 출력(최대 1,000자)을 붙여줌. 링커가 없는 환경
@@ -144,7 +160,8 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
   임시 디렉터리 경로에 공백이나 한글이 있어도 컴파일러 인자로 전달되지 않음
 - **30초 타임아웃**(`COMPILE_TIMEOUT_SECONDS`) — 초과하면 `"컴파일 시간 초과"` 메시지를 담은 실패 결과 반환.
   새로 켠 컴퓨터의 첫 컴파일은 컴파일러와 표준 라이브러리를 디스크에서 읽느라 짧은 코드도 10초를 넘길 수 있어서 넉넉하게 잡음.
-  명령마다 적용되므로 모든 레벨이 시간 초과되는 코드는 레벨 수만큼 기다림 (Rust는 6개 레벨이라 약 3분)
+  명령마다 적용됨. 모든 레벨이 시간 초과되는 코드는, 처음 쓰는 컴파일러라 첫 레벨부터 시간 초과면 한 레벨씩 하므로 레벨 수만큼 기다리고
+  (Rust는 6개 레벨이라 약 3분), 이미 써 본 컴파일러면 레벨을 동시에 컴파일하므로 약 30초 기다림
 - 프로세스를 시작하지 못한 경우(`IOException`)에도 예외 대신 사유를 담은 실패 결과를 반환
 
 ### `cleanup(Path workDir)` / `deleteRecursively(Path dir)` (private)
@@ -197,10 +214,12 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
   (맞으면 empty, 아니면 건너뛰는 이유 — 시작 로그에 남음)
 - `forSource(sourceCode)`: 이 코드를 컴파일할 때 쓸 Toolchain. 기본은 자기 자신이고, 코드 모양에 따라 명령줄이 달라지는 계열만 재정의
 - `correctedBy(compilerOutput)`: 컴파일 실패 출력을 보고 `forSource()`의 선택이 틀렸으면 다시 컴파일할 Toolchain을 돌려줌. 기본은 없음.
-  `CompilerService`가 그 레벨을 다시 컴파일하고 남은 레벨에도 같은 Toolchain을 씀
+  `CompilerService`가 그 레벨을 다시 컴파일하고, 처음 컴파일한 레벨에서 바로잡았으면 남은 레벨에도 같은 Toolchain을 씀
 - `codegenCommands()`: 어셈블리와 오브젝트 파일을 만드는 명령들의 인자. 진입점이 없어도 성공해야 함.
-  첫 번째 명령이 어셈블리를 만들고, 실패하면 컴파일 실패가 됨. 한 번에 둘 다 만드는 컴파일러는 명령을 하나만 돌려줌
-- `executableArgs()`: 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 됨 (실행 측정만 건너뜀)
+  첫 번째 명령이 어셈블리를 만들고, 실패하면 컴파일 실패가 됨. 뒤의 명령은 앞 명령이 만든 파일을 써도 됨.
+  한 번에 둘 다 만드는 컴파일러는 명령을 하나만 돌려줌. 레벨마다 작업 디렉터리가 따로 있고 레벨끼리 동시에 실행될 수 있음
+- `executableArgs()`: 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 됨 (실행 측정만 건너뜀).
+  `codegenCommands()`가 성공한 뒤 같은 작업 디렉터리에서 실행하므로 그 레벨의 오브젝트 파일을 링크해도 됨
 - `executionFailure(exitCode)`: 종료 코드를 보고 실행 시간을 믿을 수 없으면 이유를 돌려줌. 기본은 따지지 않음
   (C는 계산 결과를 `main`의 반환값으로 쓰는 코드가 흔해서 0이 아니어도 정상 실행일 수 있음)
 - `assemblyNotice(assembly)`: 컴파일은 성공했지만 결과를 볼 때 알아야 할 내용이 있으면 돌려줌. 기본은 없음
@@ -215,7 +234,11 @@ clang과 GCC처럼 GCC식 명령줄(`-S`, `-c`, `-O2`)을 쓰는 컴파일러. C
 
 clang과 GCC가 다른 부분은 최적화 remark뿐이라 생성자에서 `RemarkFormat`으로 받습니다.
 어셈블리를 만드는 명령(`-S`)에 `RemarkFormat.flags()`를 붙이고, `remarks()`는 그 출력을 `RemarkFormat.parse()`에 넘깁니다.
-크기를 재는 `-c` 명령과 실행 파일을 만드는 명령에는 붙이지 않습니다.
+
+명령은 레벨마다 세 개입니다: `-S`로 어셈블리를 만들고, `-c out.s -o out.o`로 **그 어셈블리를 어셈블만 해서** 오브젝트를 만들고,
+실행 시간도 잴 때는 `out.o -o out.exe`로 **그 오브젝트를 링크만** 합니다. 예전에는 셋 다 소스부터 컴파일해서 레벨마다 컴파일을 세 번 했습니다.
+어셈블만 해도 오브젝트는 같습니다 — clang, GCC, clang++, g++ 모두 O0~O3에서 크기가 같은 것을 확인했고, GCC는 원래 내부에서 어셈블리를 거쳐
+오브젝트를 만듭니다. C++도 clang++/g++ 드라이버로 링크하므로 표준 라이브러리가 함께 링크됩니다.
 
 ### `OptRemark` (record)
 컴파일러가 한 레벨을 컴파일하면서 남긴 최적화 기록 하나. 어셈블리 모양으로 추정한 것이 아니라 컴파일러가 직접 알려준 내용입니다.

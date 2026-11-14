@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import './App.css'
 import logo from './assets/logo-horizontal-dark.svg'
 import { filterAssembly } from './assemblyFilter'
-import { diffLines } from './diff'
+import { runDiff } from './diffRunner'
 import {
   FALLBACK_COMPILERS,
   INITIAL_LANGUAGE,
@@ -197,17 +197,32 @@ function DirectiveFilterToggle({ checked, onChange }) {
   )
 }
 
+// 기준 어셈블리와의 비교(diffLines)를 worker에서 계산한다. 어셈블리가 수천 줄이면 비교에 수백 ms가 걸려서
+// 화면 스레드에서 하면 그동안 화면이 멈춘다. 두 어셈블리 중 하나라도 없으면 비교하지 않는다.
+// 돌려주는 값: 결과를 기다리는 중이면 undefined, 줄이 너무 많아 비교를 건너뛰었거나 비교하지 않으면 null.
+function useDiffSummary(baseAssembly, assembly) {
+  const [finished, setFinished] = useState(null)
+  const comparing = baseAssembly != null && assembly != null
+
+  useEffect(() => {
+    if (!comparing) return undefined
+    const job = runDiff(baseAssembly, assembly)
+    job.promise.then((summary) => setFinished({ baseAssembly, assembly, summary }))
+    return job.cancel
+  }, [comparing, baseAssembly, assembly])
+
+  if (!comparing) return null
+  // 입력이 바뀌었는데 이전 입력의 결과가 남아 있으면 아직 기다리는 중이다
+  return finished?.baseAssembly === baseAssembly && finished?.assembly === assembly ? finished.summary : undefined
+}
+
 // base: 비교 기준이 되는 결과 (기본값은 서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
-// 에디터에 글자를 칠 때마다 App이 다시 그려진다. 어셈블리가 수만 줄이면 diff가 오래 걸리므로
-// memo와 useMemo로 결과가 바뀔 때만 계산한다.
+// 에디터에 글자를 칠 때마다 App이 다시 그려지므로 memo로 결과가 바뀔 때만 다시 그린다.
 const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
   const isBaseline = result.level === base.level
   const baseAssembly = !isBaseline && base.success ? base.assembly : null
   const comparing = result.success && baseAssembly != null
-  const diffSummary = useMemo(
-    () => (comparing ? diffLines(baseAssembly.split('\n'), result.assembly.split('\n')) : null),
-    [comparing, baseAssembly, result.assembly],
-  )
+  const diffSummary = useDiffSummary(comparing ? baseAssembly : null, comparing ? result.assembly : null)
 
   return (
     <div className={isBaseline ? 'opt-column opt-column-base' : 'opt-column'}>
@@ -226,7 +241,10 @@ const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
                 (+{diffSummary.addedCount} / -{diffSummary.removedCount} vs {base.levelLabel})
               </span>
             )}
-            {comparing && !diffSummary && (
+            {comparing && diffSummary === undefined && (
+              <span className="exec-badge-muted diff-pending"> (비교 중…)</span>
+            )}
+            {comparing && diffSummary === null && (
               <span className="exec-badge-muted"> (줄이 너무 많아 비교 생략)</span>
             )}
             {result.executionTimeMs != null && (
