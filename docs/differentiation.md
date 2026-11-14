@@ -45,8 +45,8 @@ Compiler Explorer를 대체하려는 도구가 아니라, "최적화 레벨이 �
 - **무엇:** 어셈블리 diff와 함께 레벨별 **오브젝트 파일 크기, 컴파일 시간, (옵션) 실행 시간**을 나란히 보여줍니다.
 - **다른 도구는:** compopt·asmdiff는 어셈블리(와 명령어 수)만, Quick Bench는 실행 시간만 다룹니다.
   Compiler Explorer는 창마다 컴파일 지표를 보여주지만 레벨 간 실행 시간 비교는 없습니다.
-- **근거:** 크기는 화면의 어셈블리를 `-c`로 어셈블한 오브젝트 파일 크기([CompilerService.java:270](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:270)),
-  실행 시간은 컴파일이 모두 끝난 뒤 레벨마다 5번 실행한 값 중 최솟값([CompilerService.java:332](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:332))입니다.
+- **근거:** 크기는 화면의 어셈블리를 `-c`로 어셈블한 오브젝트 파일 크기([CompilerService.java:276](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:276)),
+  실행 시간은 컴파일이 모두 끝난 뒤 레벨마다 5번 실행한 값 중 최솟값([CompilerService.java:362](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:362))입니다.
 - **내세울 때:** [optimization-levels.md](./optimization-levels.md)에 적은 **"O3가 항상 O2보다 빠르지는 않고, 크기는 커진다"**를
   사용자가 같은 화면에서 직접 확인할 수 있다는 점이 학습용 도구로서의 핵심 메시지입니다.
 
