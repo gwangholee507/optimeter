@@ -39,6 +39,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * 레벨끼리는 서로 기다릴 이유가 없어서 동시에 컴파일한다 (buildLevels 참고).
  * 실행 시간만은 컴파일이 모두 끝난 뒤에 한 레벨씩 잰다. 다른 프로세스와 CPU를 나눠 쓰면 측정값이 흔들린다.
+ * 새 실행 파일의 첫 실행이 느린 것(OS의 검사)은 재는 시간과 상관없으므로 컴파일할 때 레벨끼리 동시에 끝내 둔다
+ * (runOnceUnmeasured 참고).
  *
  * 주의: 지금은 로컬 개인 프로젝트 단계라 별도 샌드박싱(Docker 등) 없이
  * 서버 프로세스 권한으로 직접 컴파일/실행을 수행합니다.
@@ -55,6 +57,10 @@ public class CompilerService {
     private static final String COMPILE_TIMEOUT_MESSAGE = "컴파일 시간 초과 (" + COMPILE_TIMEOUT_SECONDS + "초)";
     private static final long EXECUTION_TIMEOUT_SECONDS = 5;
     private static final int BENCHMARK_RUNS = 5;
+    // 준비 실행(runOnceUnmeasured)은 OS의 첫 실행 검사만 끝내면 되므로 프로그램이 끝날 때까지 기다리지 않는다.
+    // macOS의 검사는 70~250ms쯤이라 그 두 배로 잡는다. 이보다 오래 도는 프로그램(무한 루프 포함)은
+    // 준비 실행 때문에 최대 이만큼 더 기다리므로 길게 잡지 않는다.
+    private static final Duration FIRST_RUN_TIMEOUT = Duration.ofMillis(500);
     private static final int LINK_ERROR_DETAIL_MAX_CHARS = 1000;
     // 함수가 수백 개인 코드는 인라이닝 remark만으로 수천 개가 된다. 화면에서 읽을 수 있는 양만 보낸다.
     static final int MAX_REMARKS_PER_LEVEL = 200;
@@ -107,7 +113,7 @@ public class CompilerService {
     }
 
     /**
-     * 모든 레벨을 컴파일하고, 실행 시간도 잴 때는 실행 파일까지 만든다. 결과는 levels 순서다.
+     * 모든 레벨을 컴파일하고, 실행 시간도 잴 때는 실행 파일까지 만들어 한 번 실행해 둔다. 결과는 levels 순서다.
      *
      * 레벨마다 작업 디렉터리를 따로 만들어 소스를 넣는다. 레벨끼리 동시에 컴파일하는데, rustc는 레벨과 상관없이
      * 같은 이름의 중간 파일(input.input.{해시}-cgu.0.rcgu.o)을 작업 디렉터리에 써서 한 곳에서 하면 서로 덮어쓴다.
@@ -294,7 +300,7 @@ public class CompilerService {
     }
 
     /**
-     * 실행 시간 측정용 실행 파일을 만든다.
+     * 실행 시간 측정용 실행 파일을 만들고, 시간을 재지 않고 한 번 실행해 둔다 (runOnceUnmeasured).
      * main()이 없는 코드는 링크에 실패하므로 이 경우 사유만 남기고 조용히 넘어간다
      * (컴파일 자체는 성공했으므로 전체 결과를 실패로 처리하지 않음).
      */
@@ -310,7 +316,31 @@ public class CompilerService {
         if (!linkResult.succeeded() || !Files.exists(exeFile)) {
             return build.withExecutableError(linkFailureMessage(linkResult.output()));
         }
+        runOnceUnmeasured(exeFile, build.dir(), compiler);
         return build.withExecutable(exeFile);
+    }
+
+    /**
+     * 방금 만든 실행 파일을 시간을 재지 않고 한 번 실행해 둔다.
+     *
+     * OS는 새로 만든 실행 파일을 처음 실행할 때 검사한다 (macOS에서 잰 값은 서버를 띄운 방식에 따라 70~250ms,
+     * Windows는 백신 검사).
+     * 실행 시간은 한 레벨씩 재므로 그대로 두면 이 검사를 레벨 수만큼 차례로 기다린다. 레벨을 동시에 빌드하는
+     * 이 단계에서 실행해 두면 레벨끼리 동시에 검사를 받는다. 측정값은 그대로다: 측정은 여러 번 실행한 최솟값이라
+     * 검사를 기다린 첫 실행은 원래도 쓰이지 않았다.
+     *
+     * 검사만 끝내면 되므로 FIRST_RUN_TIMEOUT이 지나면 끝까지 기다리지 않고 멈춘다. 결과도 쓰지 않는다:
+     * 다른 레벨의 컴파일과 CPU를 나눠 쓰는 중이라 시간 초과 여부가 측정할 때와 다를 수 있다.
+     */
+    private void runOnceUnmeasured(Path exeFile, Path dir, CompilerRegistry.ResolvedCompiler compiler) {
+        try {
+            processRunner.runDiscardingOutput(List.of(exeFile.toString()), dir, compiler.toolDir(), FIRST_RUN_TIMEOUT);
+        } catch (IOException e) {
+            // 실행하지 못한 사유는 시간을 잴 때 다시 실행해서 결과에 남긴다
+            log.debug("준비 실행 실패: {}", e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** 실행 파일을 여러 번 실행하고 최솟값(가장 노이즈가 적은 값)을 실행 시간으로 채택한다. */

@@ -22,6 +22,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -587,8 +590,70 @@ class CompilerServiceTest {
         List<OptimizationResult> results = service.compareOptimizationLevels(code, "clang", true);
 
         assertThat(results).allSatisfy(r -> assertThat(r.getExecutionTimeMs()).as(r.getExecutionError()).isNotNull());
-        // 실행하는 동안에는 컴파일러도, 다른 레벨의 프로그램도 돌지 않는다
-        assertThat(runner.maxProcessesDuringExecution).hasValue(1);
+        // 시간을 재는 동안에는 컴파일러도, 다른 레벨의 프로그램도 돌지 않는다
+        assertThat(runner.maxProcessesDuringMeasurement).hasValue(1);
+    }
+
+    @Test
+    void 새_실행_파일의_첫_실행은_시간을_재기_전에_레벨끼리_동시에_한다() {
+        assumeTrue(Runtime.getRuntime().availableProcessors() >= 2);
+        String code = """
+                int add(int a, int b) { return a + b; }
+                int main(void) { return add(1, 2); }
+                """;
+        // 첫 실행 둘이 서로를 기다린다. 첫 실행을 한 레벨씩 하면 먼저 시작한 쪽이 혼자 기다리다 시간이 다 된다
+        CountDownLatch twoFirstRuns = new CountDownLatch(2);
+        AtomicBoolean waitedAlone = new AtomicBoolean();
+        Set<String> startedPrograms = ConcurrentHashMap.newKeySet();
+        ProcessRunner runner = new ProcessRunner() {
+            @Override
+            public ProcessResult runDiscardingOutput(List<String> command, Path workDir, Path toolDir, Duration timeout)
+                    throws IOException, InterruptedException {
+                if (startedPrograms.add(command.get(0))) {
+                    twoFirstRuns.countDown();
+                    if (!twoFirstRuns.await(10, TimeUnit.SECONDS)) {
+                        waitedAlone.set(true);
+                    }
+                }
+                return super.runDiscardingOutput(command, workDir, toolDir, timeout);
+            }
+        };
+        CompilerService service = new CompilerService(registry, runner);
+        // 처음 쓰는 컴파일러는 첫 레벨을 혼자 빌드하므로, 한 번 컴파일해 둬서 모든 레벨을 동시에 빌드하게 한다
+        service.compareOptimizationLevels(code, "clang", false);
+
+        List<OptimizationResult> results = service.compareOptimizationLevels(code, "clang", true);
+
+        assertThat(results).allSatisfy(r -> assertThat(r.getExecutionTimeMs()).as(r.getExecutionError()).isNotNull());
+        assertThat(waitedAlone).isFalse();
+    }
+
+    @Test
+    void 첫_실행이_끝나지_않아도_실행_시간은_따로_잰다() {
+        String code = """
+                int add(int a, int b) { return a + b; }
+                int main(void) { return add(1, 2); }
+                """;
+        // 첫 실행은 다른 레벨의 컴파일과 CPU를 나눠 쓰는 중이라 시간 초과가 측정할 때와 다를 수 있다
+        Set<String> startedPrograms = ConcurrentHashMap.newKeySet();
+        ProcessRunner firstRunTimesOut = new ProcessRunner() {
+            @Override
+            public ProcessResult runDiscardingOutput(List<String> command, Path workDir, Path toolDir, Duration timeout)
+                    throws IOException, InterruptedException {
+                if (startedPrograms.add(command.get(0))) {
+                    return new ProcessResult(-1, "", true, timeout.toNanos());
+                }
+                return super.runDiscardingOutput(command, workDir, toolDir, timeout);
+            }
+        };
+        CompilerService service = new CompilerService(registry, firstRunTimesOut);
+
+        List<OptimizationResult> results = service.compareOptimizationLevels(code, "clang", true);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.getExecutionTimeMs()).as(r.getExecutionError()).isNotNull();
+            assertThat(r.getExecutionError()).isNull();
+        });
     }
 
     @ParameterizedTest
@@ -664,8 +729,9 @@ class CompilerServiceTest {
 
         private final Set<String> runningLevelDirs = ConcurrentHashMap.newKeySet();
         private final AtomicInteger runningProcesses = new AtomicInteger();
+        private final Set<String> startedPrograms = ConcurrentHashMap.newKeySet();
         final Set<String> overlappedLevelDirs = ConcurrentHashMap.newKeySet();
-        final AtomicInteger maxProcessesDuringExecution = new AtomicInteger();
+        final AtomicInteger maxProcessesDuringMeasurement = new AtomicInteger();
 
         @Override
         public ProcessResult run(List<String> command, Path workDir, Path toolDir, Duration timeout)
@@ -691,7 +757,12 @@ class CompilerServiceTest {
         @Override
         public ProcessResult runDiscardingOutput(List<String> command, Path workDir, Path toolDir, Duration timeout)
                 throws IOException, InterruptedException {
-            maxProcessesDuringExecution.accumulateAndGet(runningProcesses.incrementAndGet(), Math::max);
+            // 실행 파일마다 첫 실행은 시간을 재지 않는 준비 실행이라 컴파일하는 동안 다른 레벨과 함께 돈다
+            boolean measured = !startedPrograms.add(command.get(0));
+            int running = runningProcesses.incrementAndGet();
+            if (measured) {
+                maxProcessesDuringMeasurement.accumulateAndGet(running, Math::max);
+            }
             try {
                 return super.runDiscardingOutput(command, workDir, toolDir, timeout);
             } finally {

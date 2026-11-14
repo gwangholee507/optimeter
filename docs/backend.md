@@ -126,7 +126,7 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
 
 ### `buildLevel(...) : LevelBuild` / `compileLevel(...) : OptimizationResult` (private)
 특정 최적화 레벨 하나를 그 레벨의 작업 디렉터리에서 컴파일. `buildLevel()`은 `compileLevel()`이 실패했을 때 `Toolchain.correctedBy()`가
-다른 toolchain을 돌려주면 그것으로 한 번 더 컴파일하고, 실행 시간도 잴 때는 `linkExecutable()`로 실행 파일을 만듭니다.
+다른 toolchain을 돌려주면 그것으로 한 번 더 컴파일하고, 실행 시간도 잴 때는 `linkExecutable()`로 실행 파일을 만들어 한 번 실행해 둡니다.
 `compileLevel()`이 하는 일:
 1. `Toolchain.codegenCommands()`의 첫 번째 명령으로 어셈블리 생성 (`{compiler} -S -O{level} input.c -o out.s`).
    clang/gcc는 이 명령에 remark 인자가 붙어서 최적화 remark도 함께 출력됨
@@ -143,7 +143,16 @@ clang/gcc(`GccStyleToolchain`) 기준이고, rustc의 명령은 [`RustcToolchain
 ### `linkExecutable(...)` / `benchmarkExecution(...) : ExecutionOutcome` (private)
 `linkExecutable()`은 `Toolchain.executableArgs()`로 실행 파일을 만듭니다(성공해야 `main()`이 있다는 뜻).
 clang/gcc는 `compileLevel()`이 만든 오브젝트를 링크만 하고(`{compiler} out.o -o out.exe`), rustc는 소스부터 다시 빌드합니다.
-`benchmarkExecution()`은 그 실행 파일을 `BENCHMARK_RUNS`(5)번 실행해서 걸린 시간(나노초) 중 최솟값을 채택합니다.
+링크에 성공하면 `runOnceUnmeasured()`로 그 실행 파일을 시간을 재지 않고 한 번 실행해 둡니다(준비 실행).
+OS는 새로 만든 실행 파일을 처음 실행할 때 검사하는데(macOS에서 잰 값은 서버를 띄운 방식에 따라 70~250ms, Windows는 백신 검사),
+실행 시간은 한 레벨씩 재므로 그대로 두면 이 검사를 레벨 수만큼 차례로 기다리기 때문입니다. 레벨을 동시에 빌드하는
+이 단계에서 실행해 두면 레벨끼리 동시에 검사를 받습니다. macOS에서 실행 시간 측정을 켠 비교가 C/C++(4레벨)은 약 0.2초,
+Rust(6레벨)는 약 0.37초 빨라졌습니다.
+준비 실행은 검사만 끝내면 되므로 `FIRST_RUN_TIMEOUT`(500ms)이 지나면 멈추고, 결과는 쓰지 않습니다
+(다른 레벨의 컴파일과 CPU를 나눠 쓰는 중이라 시간 초과 여부가 측정할 때와 다를 수 있음).
+그래서 이보다 오래 도는 프로그램은 최대 500ms를 더 기다립니다 (무한 루프는 레벨마다 5초씩 기다리던 20초가 20.5초가 됨).
+`benchmarkExecution()`은 컴파일이 모두 끝난 뒤 그 실행 파일을 `BENCHMARK_RUNS`(5)번 실행해서 걸린 시간(나노초) 중 최솟값을 채택합니다.
+검사를 기다린 첫 실행은 원래도 최솟값에 쓰이지 않았으므로 준비 실행이 측정값을 바꾸지는 않습니다.
 - 링크 실패(대개 `main()` 없음) 시 컴파일 자체는 성공으로 두고 `executionError`만 채움 — 순수 함수만
   있는 코드에서도 어셈블리/크기 비교는 그대로 볼 수 있게 하기 위함
   - `linkFailureMessage()`가 안내 문구 뒤에 링커의 원본 출력(최대 1,000자)을 붙여줌. 링커가 없는 환경
