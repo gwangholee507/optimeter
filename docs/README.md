@@ -16,8 +16,8 @@
 | [frontend.md](./frontend.md) | React 프론트엔드의 컴포넌트/함수별 설명 |
 | [branching-strategy.md](./branching-strategy.md) | Git 브랜치 전략 (GitHub Flow) — 브랜치 이름 규칙, PR/머지 규칙 |
 | [commit-convention.md](./commit-convention.md) | 커밋 메시지 규칙 (Conventional Commits) |
-| [release.md](./release.md) | 릴리스 방법 — 버전 태그를 올리면 실행 가능한 jar가 자동으로 배포됨 |
-| [brand/](./brand/) | 로고 원본 — 앱 아이콘, 가로 로고(어두운/밝은 배경). SVG를 쓸 수 없는 곳에 올릴 PNG는 `brand/png/`, 화면 헤더용 사본은 `frontend/src/assets/`, 파비콘은 `frontend/public/`에 있음 |
+| [release.md](./release.md) | 릴리스 방법 — 버전 태그를 올리면 실행 가능한 jar와 Mac용 앱(.dmg)이 자동으로 배포됨. Mac 앱을 직접 만드는 방법 |
+| [brand/](./brand/) | 로고 원본 — 앱 아이콘, 가로 로고(어두운/밝은 배경). SVG를 쓸 수 없는 곳에 올릴 PNG는 `brand/png/`, 화면 헤더용 사본은 `frontend/src/assets/`, 파비콘(`frontend/public/favicon.svg`)은 `logo-mark.svg`와 같은 파일 (CI가 같은지 확인함). Mac 앱 아이콘은 `brand/png/optimeter-mark-1024.png`로 만듦 |
 
 ## 코드가 바뀌면?
 

@@ -30,7 +30,8 @@ macOS, Linux, Windows에서 실행할 수 있습니다.
 - `clang` — macOS는 Xcode Command Line Tools(`xcode-select --install`)에 포함되어 있고,
   Ubuntu/Debian은 `sudo apt-get install clang`으로 설치합니다. Windows는 바로 아래
   [Windows에서 컴파일러 준비하기](#windows에서-컴파일러-준비하기)를 참고하세요.
-- JDK 17 이상. Maven과 Node.js는 따로 설치하지 않아도 됩니다.
+- JDK 17 이상 — jar로 실행하거나 소스에서 실행할 때만 필요합니다. Maven과 Node.js는 따로 설치하지 않아도 됩니다.
+  macOS 앱(.dmg)에는 Java가 들어 있어서 설치하지 않아도 됩니다.
 - (선택) GNU GCC — 설치하면 컴파일러 드롭다운에 "GNU GCC"도 뜨고 선택할 수
   있습니다. 설치 안 해도 앱은 정상 동작하며, 이 경우 드롭다운에는 Clang만 나옵니다.
   macOS는 `brew install gcc`, Ubuntu/Debian은 `sudo apt-get install gcc`로 설치합니다.
@@ -107,14 +108,44 @@ Windows에는 C 컴파일러가 기본으로 들어 있지 않아서 직접 설�
 
 ### 실행하기
 
-**방법 1 — jar 파일 내려받아 실행 (가장 간단)**
+**방법 1 — macOS: 앱(.dmg) 설치 (Mac에서 가장 간단)**
 
-[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에서 `optimeter-<버전>.jar`를 내려받고, 터미널에서 실행합니다.
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에서 내 Mac에 맞는 파일을 내려받습니다.
+(Apple 메뉴 → **이 Mac에 관하여**에서 칩이 "Apple M…"이면 Apple Silicon, 프로세서가 "Intel"이면 Intel입니다.)
+
+| Mac | 파일 |
+|---|---|
+| Apple Silicon (M1 이후) | `optimeter-<버전>-macos-arm64.dmg` |
+| Intel | `optimeter-<버전>-macos-x64.dmg` |
+
+1. 내려받은 `.dmg`를 열고, **Optimeter**를 옆의 **Applications(응용 프로그램)** 폴더로 끌어다 놓습니다.
+2. 응용 프로그램 폴더에서 Optimeter를 엽니다. **처음 한 번은** 악성 코드가 없는지 확인할 수 없다는 경고가 뜨고 열리지 않습니다.
+   이 앱은 Apple 개발자 서명을 받지 않았기 때문입니다 (소스가 모두 공개되어 있고, 직접 빌드할 수도 있습니다).
+   경고 창을 닫고 아래처럼 한 번만 허용해 주세요.
+   - **시스템 설정 → 개인정보 보호 및 보안**을 열고 아래쪽 **보안** 항목에서 Optimeter 옆의 **그래도 열기**를 누릅니다.
+     암호를 입력하고 한 번 더 **그래도 열기**를 누르면 열립니다. 다음부터는 그냥 열립니다.
+   - 터미널이 편하다면 이 명령 하나로 대신할 수 있습니다: `xattr -dr com.apple.quarantine /Applications/Optimeter.app`
+3. 앱이 열리면 Dock에 Optimeter 아이콘이 생기고, 몇 초 뒤 **브라우저가 자동으로 화면을 엽니다.**
+   - 브라우저 탭을 닫았다면 Dock의 Optimeter 아이콘을 누르면 다시 열립니다.
+   - 끝낼 때는 Dock 아이콘을 오른쪽 클릭해서 **종료**를 누르거나, Optimeter가 앞에 있을 때 `Cmd+Q`를 누릅니다.
+   - 8080번 포트를 다른 프로그램이 쓰고 있으면 알아서 빈 포트로 띄우고 그 주소로 브라우저를 엽니다.
+   - 서버 로그는 `~/Library/Logs/Optimeter/optimeter.log`에 남습니다 ("콘솔" 앱의 로그 보고서에서도 볼 수 있습니다).
+     어떤 컴파일러를 찾았는지도 여기서 확인할 수 있습니다.
+
+> 컴파일러는 앱에 들어 있지 않으므로 [준비물](#준비물)대로 설치해야 합니다. Homebrew로 설치한 GCC와 rustup으로 설치한 rustc는
+> 앱에서도 알아서 찾습니다. 다만 Finder에서 연 앱에는 셸에 설정한 환경 변수(`OPTVIS_GCC` 등)가 전달되지 않으므로,
+> 특이한 위치에 설치한 컴파일러를 환경 변수로 지정해야 한다면 방법 2(jar)를 터미널에서 실행하세요.
+
+**방법 2 — jar 파일 내려받아 실행 (모든 OS)**
+
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에서 `optimeter-<버전>.jar`를 내려받고, **터미널에서** 실행합니다.
 ```bash
 java -jar optimeter-<버전>.jar
 ```
+> jar 파일을 더블클릭해서 열지 마세요. macOS에서는 서명되지 않은 파일이라 열리지 않고, 열리더라도 창 없이
+> 뒤에서만 돌아서 끌 방법이 없습니다. Mac에서는 방법 1의 앱을 쓰는 것이 편합니다.
 
-**방법 2 — 소스에서 바로 실행**
+**방법 3 — 소스에서 바로 실행**
 
 저장소를 내려받았다면 `backend` 폴더에서 명령 하나로 실행할 수 있습니다.
 ```bash
@@ -123,7 +154,7 @@ cd backend
 ```
 (처음 실행할 때는 Maven, 라이브러리, 화면 빌드용 Node.js를 내려받느라 몇 분 걸릴 수 있습니다.)
 
-어느 방법이든 `Tomcat started on port 8080` 같은 로그가 뜨면 준비 완료입니다.
+방법 2와 3은 `Tomcat started on port 8080` 같은 로그가 뜨면 준비 완료입니다.
 브라우저에서 **`http://localhost:8080`** 을 열면 됩니다. 끝낼 때는 터미널에서 `Ctrl+C`를 누릅니다.
 
 > 화면과 서버가 프로그램 하나로 합쳐져 있어서 따로 띄울 것이 없습니다.
@@ -132,7 +163,8 @@ cd backend
 ### 포트를 바꾸거나 다른 기기에서 접속하려면
 
 - **포트 변경**: 8080번을 이미 다른 프로그램이 쓰고 있다면 실행 명령 끝에 `--server.port=9090`을 붙입니다.
-  (방법 2는 `./mvnw -Pbundle spring-boot:run -Dspring-boot.run.arguments=--server.port=9090`)
+  (방법 3은 `./mvnw -Pbundle spring-boot:run -Dspring-boot.run.arguments=--server.port=9090`.
+  방법 1의 macOS 앱은 알아서 빈 포트를 고르므로 따로 할 일이 없습니다.)
 - **다른 기기에서 접속**: 기본적으로는 **이 프로그램을 실행한 PC에서만** 접속할 수 있습니다. 이 프로그램은 받은
   코드를 컴파일하고 (옵션으로) 실행까지 하기 때문에, 같은 Wi-Fi의 다른 사람이 접속할 수 있으면 그 사람이
   내 PC에서 임의의 프로그램을 실행할 수 있게 됩니다. 그래도 필요하다면 믿을 수 있는 네트워크에서만
@@ -444,8 +476,16 @@ For more information about this error, try `rustc --explain E0425`.
 정상적인 코드라면 보통 0이 나오지 않습니다.
 
 **Q. "백엔드 서버에 연결할 수 없습니다"라고 떠요.**
-서버가 꺼져 있다는 뜻입니다. 프로그램을 실행한 터미널이 닫혔거나 `Ctrl+C`로 종료되지 않았는지 확인하고,
+서버가 꺼져 있다는 뜻입니다. 프로그램을 실행한 터미널이 닫혔거나 `Ctrl+C`로 종료되지 않았는지 확인하고
+(macOS 앱이라면 Dock에 Optimeter가 떠 있는지 확인하고),
 [2. 처음 실행하기](#2-처음-실행하기)를 참고해 다시 실행하세요.
+
+**Q. Mac에서 내려받은 jar 파일을 더블클릭했는데 열리지 않아요.**
+macOS는 인터넷에서 받은 서명 없는 파일을 더블클릭으로 여는 것을 막습니다. jar는 터미널에서
+`java -jar`로 실행하거나, Mac용 앱(.dmg)을 설치하세요 ([실행하기](#실행하기)의 방법 1).
+
+**Q. macOS 앱을 열었더니 잠깐 Dock에 떴다가 오류 창이 나와요.**
+서버를 시작하지 못했다는 뜻입니다. 오류 창에 나온 이유와 `~/Library/Logs/Optimeter/optimeter.log`의 내용을 확인하세요.
 
 **Q. 실행했더니 "Port 8080 was already in use"라고 나와요.**
 8080번 포트를 다른 프로그램(또는 이미 띄워둔 이 프로그램)이 쓰고 있습니다. 그 프로그램을 끄거나,
