@@ -40,10 +40,11 @@ public class CompilerRegistry {
     public CompilerRegistry(CompilerProperties properties, ProcessRunner processRunner) {
         this.processRunner = processRunner;
         HostOs hostOs = HostOs.current();
+        List<String> searchDirs = properties.searchDirsFor(hostOs);
         for (CompilerProperties.Option option : properties.getOptions()) {
             requireLanguageAndToolchain(option);
             Toolchain toolchain = option.getToolchain().toolchain();
-            List<String> candidates = option.candidatesFor(hostOs);
+            List<String> candidates = option.candidatesFor(hostOs, searchDirs);
             String resolvedPath = probeCandidates(toolchain, candidates);
             boolean available = resolvedPath != null;
             if (available) {
