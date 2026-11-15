@@ -2,18 +2,40 @@
 # CI 전용 스크립트: 만들어진 jar를 실제로 띄워서, 서버 하나가 화면과 API를 모두 내보내는지 확인한다.
 # (단위 테스트는 jar 안에 프론트엔드가 제대로 들어갔는지까지는 확인하지 못한다)
 #
-# 사용법: bash .github/scripts/smoke-test.sh <jar 경로> [포트]
+# 사용법: bash .github/scripts/smoke-test.sh <jar 또는 실행 파일 경로> [포트] [서버에 넘길 인자...]
+#   .jar로 끝나면 `java -jar`로, 아니면 그 실행 파일을 그대로 띄운다 (macOS 앱의 Contents/MacOS/Optimeter 등.
+#   smoke-test-dmg.sh 참고).
 # clang이 설치되어 있어야 한다 (실제로 한 번 컴파일해 본다).
 # Windows 러너에서도 Git Bash로 실행되므로 bash와 curl만 사용한다.
 set -euo pipefail
 
-JAR="$1"
+TARGET="$1"
 PORT="${2:-18080}"
+shift $(($# >= 2 ? 2 : 1))
 BASE="http://127.0.0.1:${PORT}"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-java -jar "$JAR" --server.port="$PORT" > smoke-server.log 2>&1 &
+if [[ "$TARGET" == *.jar ]]; then
+    LAUNCH=(java -jar "$TARGET")
+else
+    LAUNCH=("$TARGET")
+fi
+# ${@+"$@"}: 추가 인자가 없을 때 macOS 기본 bash(3.2)의 set -u가 빈 배열을 "unbound variable"로 보는 것을 피한다
+"${LAUNCH[@]}" --server.port="$PORT" ${@+"$@"} > smoke-server.log 2>&1 &
 SERVER_PID=$!
-trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+# 서버가 실제로 끝날 때까지 기다린다. smoke-test-dmg.sh는 이 스크립트가 끝나면 바로 .dmg를 떼어내는데,
+# 그때 앱이 아직 종료 중이면 실행 중인 파일이 사라져 프로세스가 CPU를 붙잡은 채 남는다.
+stop_server() {
+    kill "$SERVER_PID" 2>/dev/null || return 0
+    for _ in $(seq 1 30); do
+        kill -0 "$SERVER_PID" 2>/dev/null || return 0
+        sleep 1
+    done
+    echo "서버가 30초 안에 끝나지 않아 강제로 종료합니다."
+    kill -9 "$SERVER_PID" 2>/dev/null || true
+}
+trap stop_server EXIT
 
 fail() {
     echo "❌ $1"
@@ -52,6 +74,14 @@ INDEX_CACHE="$(cache_control "$BASE/")"
 ASSET_CACHE="$(cache_control "$BASE$SCRIPT_PATH")"
 [ "$ASSET_CACHE" = "max-age=31536000, immutable" ] || fail "$SCRIPT_PATH 의 Cache-Control이 장기 캐시가 아님: '$ASSET_CACHE'"
 echo "✅ 캐시: / 는 no-cache, $SCRIPT_PATH 는 immutable"
+
+# 1-2) 아이콘: 브라우저 탭에 뜨는 아이콘(파비콘)이 로고 원본(docs/brand/logo-mark.svg)과 같아야 한다.
+#      jar는 창 없이 도는 서버라 OS에 앱 아이콘이 따로 생기지 않으므로, 사용자가 보는 아이콘은 이것뿐이다.
+grep -q '<link rel="icon"[^>]*href="/favicon.svg"' smoke-index.html || fail "index.html에 /favicon.svg 아이콘 링크가 없음"
+curl -fsS "$BASE/favicon.svg" -D smoke-favicon.headers -o smoke-favicon.svg || fail "GET /favicon.svg 실패"
+tr -d '\r' < smoke-favicon.headers | grep -qi '^content-type: image/svg+xml' || fail "/favicon.svg 의 Content-Type이 image/svg+xml이 아님"
+cmp -s smoke-favicon.svg "$REPO_ROOT/docs/brand/logo-mark.svg" || fail "/favicon.svg 가 로고 원본(docs/brand/logo-mark.svg)과 다름"
+echo "✅ 아이콘: /favicon.svg 는 로고"
 
 # 2) API: 컴파일러 목록
 grep -q '"id":"clang"' smoke-compilers.json || fail "/api/compilers 응답에 clang이 없음"

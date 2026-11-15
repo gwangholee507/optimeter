@@ -87,6 +87,14 @@ jobs:
         shell: bash
         run: bash ../.github/scripts/smoke-test.sh target/optimeter-*.jar
 
+      # macOS에서는 릴리스 때 함께 배포하는 앱(.dmg)도 만들어서 띄워본다.
+      # 앱에는 필요한 Java 모듈만 넣으므로, 의존성을 바꿨을 때 앱에서만 깨지는 것을 릴리스 전에 잡기 위함.
+      - name: Build and smoke test macOS app (.dmg)
+        if: runner.os == 'macOS'
+        run: |
+          bash ../packaging/macos/build-dmg.sh target/optimeter-*.jar 0.0.0-ci ../dist
+          bash ../.github/scripts/smoke-test-dmg.sh ../dist/optimeter-0.0.0-ci-macos-*.dmg
+
   frontend-test:
     name: Frontend / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
