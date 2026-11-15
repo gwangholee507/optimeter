@@ -5,6 +5,9 @@ backend/target/
 frontend/node_modules/
 frontend/dist/
 
+# macOS 앱(.dmg) 출력 (packaging/macos/build-dmg.sh, CI)
+/dist/
+
 # OS
 .DS_Store
 

@@ -48,6 +48,14 @@ compiler:
   #
   # os-candidates: 그 OS에서만 candidates 뒤에 추가로 시도한다. PATH에 자동 등록되지 않는
   #   기본 설치 위치를 적어두는 용도. 키는 windows / macos / linux.
+  #
+  # search-dirs: candidates 중 이름만 적힌 것(예: gcc-16)을 PATH에서 못 찾았을 때 이어서 찾아볼 디렉터리.
+  #   키는 os-candidates와 같다. Finder에서 연 macOS 앱(.dmg)은 셸 설정 파일을 거치지 않아서
+  #   PATH가 /usr/bin:/bin:/usr/sbin:/sbin뿐이라, Homebrew로 설치한 GCC를 이름만으로는 찾지 못한다.
+  search-dirs:
+    macos:
+      - /opt/homebrew/bin  # Apple Silicon Mac의 Homebrew
+      - /usr/local/bin     # Intel Mac의 Homebrew
   options:
     - id: clang
       label: "Clang (LLVM)"

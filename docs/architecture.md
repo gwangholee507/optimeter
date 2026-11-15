@@ -98,9 +98,12 @@ OS마다 사정이 다릅니다. 이런 차이는 아래 세 곳에만 모아두
 
 | OS마다 다른 것 | 처리하는 곳 | 방법 |
 |---|---|---|
-| 컴파일러가 설치되는 위치 | `application.yml`의 `os-candidates` + `CompilerRegistry` | PATH의 이름을 먼저 시도하고, 그 OS의 기본 설치 위치(Windows의 MSYS2, LLVM)를 이어서 시도. 그래도 못 찾으면 `OPTVIS_CLANG`/`OPTVIS_GCC`/`OPTVIS_CLANGXX`/`OPTVIS_GXX`/`OPTVIS_RUSTC` 환경 변수로 직접 지정 |
+| 컴파일러가 설치되는 위치 | `application.yml`의 `os-candidates`, `search-dirs` + `CompilerRegistry` | PATH의 이름을 먼저 시도하고, PATH 밖에서도 그 OS의 `search-dirs`(macOS의 Homebrew 디렉터리 — Finder에서 연 앱은 PATH에 없음)에서 같은 이름을 찾고, 그 OS의 기본 설치 위치(Windows의 MSYS2, LLVM)를 이어서 시도. 그래도 못 찾으면 `OPTVIS_CLANG`/`OPTVIS_GCC`/`OPTVIS_CLANGXX`/`OPTVIS_GXX`/`OPTVIS_RUSTC` 환경 변수로 직접 지정 |
 | 프로세스 실행/종료 방식 | `platform.ProcessRunner` | 출력은 파일로 받고(파이프 버퍼가 차서 멈추는 문제 방지), 표준 입력은 바로 닫고, 타임아웃 시 자식 프로세스까지 종료, PATH 환경 변수 이름의 대소문자 차이 흡수 |
-| 지금 어떤 OS인지 판단 | `platform.HostOs` | JVM의 `os.name`으로 판단. `os-candidates`의 키(`windows`/`macos`/`linux`)를 고르는 데만 사용 |
+| 지금 어떤 OS인지 판단 | `platform.HostOs` | JVM의 `os.name`으로 판단. `os-candidates`/`search-dirs`의 키(`windows`/`macos`/`linux`)를 고르는 데만 사용 |
+
+macOS 앱(.dmg)으로 열렸을 때의 동작(Dock 아이콘, 브라우저 자동 열기 등)은 OS를 보고 분기하는 것이 아니라,
+앱이 넘겨주는 실행 옵션(`-Doptimeter.desktop=true`)을 보고 켭니다 (`desktop.DesktopApp`, [backend.md](./backend.md) 참고).
 
 그 밖에 OS 차이를 **분기 없이** 피해 가는 장치들:
 
@@ -110,6 +113,7 @@ OS마다 사정이 다릅니다. 이런 차이는 아래 세 곳에만 모아두
 - 실행 파일 이름은 어디서나 `out-O{n}.exe`입니다. Windows에서는 확장자가 필요하고, 다른 OS에서는 있어도 무해합니다.
 - 어셈블리와 컴파일러 출력의 줄바꿈은 `\n`으로 통일해서 응답합니다 (Windows의 컴파일러는 `\r\n`으로 씀).
 - 빌드/실행 명령은 Maven Wrapper(`mvnw` / `mvnw.cmd`)와 npm 스크립트만 사용하고, 특정 셸에서만 도는 스크립트는 두지 않습니다.
+  예외는 Mac용 앱을 만드는 [`packaging/macos/build-dmg.sh`](../packaging/macos/build-dmg.sh)뿐입니다 (macOS에서만 의미가 있는 작업).
 - `.gitattributes`로 줄바꿈을 관리해서 Windows에서 체크아웃해도 `mvnw`가 깨지지 않습니다.
 
 CI([ci.yml](../.github/workflows/ci.yml))는 Ubuntu, macOS, Windows 세 곳에서 같은 테스트를 돌려 이 구조가

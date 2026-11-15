@@ -24,6 +24,11 @@ import java.util.Map;
 public class CompilerProperties {
 
     private List<Option> options = new ArrayList<>();
+    /**
+     * PATH에 없어도 이름만 적힌 후보(예: "gcc-16")를 찾아볼 디렉터리들. 키는 HostOs.configKey().
+     * Finder에서 연 macOS 앱은 셸 설정 파일을 거치지 않아 PATH에 Homebrew 디렉터리가 없기 때문에 필요하다.
+     */
+    private Map<String, List<String>> searchDirs = new HashMap<>();
 
     public List<Option> getOptions() {
         return options;
@@ -31,6 +36,29 @@ public class CompilerProperties {
 
     public void setOptions(List<Option> options) {
         this.options = options;
+    }
+
+    public Map<String, List<String>> getSearchDirs() {
+        return searchDirs;
+    }
+
+    public void setSearchDirs(Map<String, List<String>> searchDirs) {
+        this.searchDirs = searchDirs;
+    }
+
+    /** 주어진 OS에서 이름만 적힌 후보를 찾아볼 디렉터리 (빈 값은 건너뜀). */
+    public List<String> searchDirsFor(HostOs os) {
+        return nonBlank(searchDirs.getOrDefault(os.configKey(), List.of()));
+    }
+
+    private static List<String> nonBlank(List<String> values) {
+        List<String> result = new ArrayList<>();
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                result.add(value.trim());
+            }
+        }
+        return result;
     }
 
     public static class Option {
@@ -100,18 +128,35 @@ public class CompilerProperties {
          * 빈 값은 건너뛴다 (application.yml의 "${OPTVIS_CLANG:}"처럼 환경 변수가 없을 때 빈 문자열이 되는 후보).
          */
         public List<String> candidatesFor(HostOs os) {
+            return candidatesFor(os, List.of());
+        }
+
+        /**
+         * candidatesFor(os)와 같되, 이름만 적힌 공통 후보 바로 뒤에 searchDirs 안의 같은 이름을 끼워 넣는다.
+         * 예) [gcc-16, gcc-15] + [/opt/homebrew/bin] → gcc-16, /opt/homebrew/bin/gcc-16, gcc-15, /opt/homebrew/bin/gcc-15
+         * 후보마다 바로 뒤에 넣는 이유: 어느 디렉터리에 있든 앞에 적힌(= 더 새 버전) 후보가 먼저 잡히게 하려고.
+         */
+        public List<String> candidatesFor(HostOs os, List<String> searchDirs) {
             List<String> result = new ArrayList<>();
-            for (String candidate : candidates) {
-                if (candidate != null && !candidate.isBlank()) {
-                    result.add(candidate.trim());
+            for (String candidate : nonBlank(candidates)) {
+                result.add(candidate);
+                if (isBareName(candidate)) {
+                    for (String dir : searchDirs) {
+                        result.add(join(dir, candidate));
+                    }
                 }
             }
-            for (String candidate : osCandidates.getOrDefault(os.configKey(), List.of())) {
-                if (candidate != null && !candidate.isBlank()) {
-                    result.add(candidate.trim());
-                }
-            }
+            result.addAll(nonBlank(osCandidates.getOrDefault(os.configKey(), List.of())));
             return result;
+        }
+
+        /** 경로 구분자가 없는 실행 파일 이름인지 (PATH에서 찾는 후보). */
+        private static boolean isBareName(String candidate) {
+            return candidate.indexOf('/') < 0 && candidate.indexOf('\\') < 0;
+        }
+
+        private static String join(String dir, String name) {
+            return dir.endsWith("/") || dir.endsWith("\\") ? dir + name : dir + "/" + name;
         }
     }
 }

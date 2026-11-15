@@ -55,7 +55,7 @@ Rust의 `(0..n).map(square).sum()` 같은 반복자 코드는 `opt-level=0`에�
 ```
 
 사용자에게 배포하는 형태는 **jar 파일 하나**입니다. 프론트엔드를 빌드한 결과물을 백엔드 jar 안에 넣어서,
-서버 하나가 화면과 API를 함께 내보냅니다.
+서버 하나가 화면과 API를 함께 내보냅니다. Mac용으로는 이 jar에 Java 런타임까지 넣은 **앱(.dmg)** 도 함께 배포합니다.
 
 ## 빠르게 실행해보기
 
@@ -63,7 +63,7 @@ Rust의 `(0..n).map(square).sum()` 같은 반복자 코드는 `opt-level=0`에�
 
 macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에서 테스트합니다).
 
-- JDK 17 이상
+- JDK 17 이상 (Mac용 앱(.dmg)으로 설치하면 필요 없음)
 - C 컴파일러: `clang`, 그리고 선택적으로 GNU GCC (설치하면 컴파일러 드롭다운에서 고를 수 있음)
 - (선택) C++ 컴파일러: `clang++`, `g++` (설치하면 언어 드롭다운에서 C++을 고를 수 있음)
 - (선택) Rust 컴파일러: `rustc` ([rustup](https://rustup.rs/)으로 설치하면 언어 드롭다운에서 Rust를 고를 수 있음)
@@ -79,10 +79,20 @@ macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에�
 > Windows에서 MSYS2를 기본 위치(`C:\msys64`)에 설치했다면 PATH를 따로 설정하지 않아도 서버가 알아서 찾습니다.
 > 다른 방법으로 설치했거나 인식이 안 될 때는 [사용자 가이드의 Windows 안내](docs/user-guide.md#windows에서-컴파일러-준비하기)를 참고하세요.
 
-### 방법 1 — jar 파일 내려받아 실행
+### 방법 1 — Mac: 앱(.dmg) 설치
 
-[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에 올라온 `optimeter-<버전>.jar`를 내려받아 실행합니다.
-(올라온 릴리스가 없다면 방법 2를 사용하세요.)
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에서 Apple Silicon Mac은 `optimeter-<버전>-macos-arm64.dmg`,
+Intel Mac은 `optimeter-<버전>-macos-x64.dmg`를 내려받아 Optimeter를 응용 프로그램 폴더로 끌어다 놓습니다.
+앱을 열면 브라우저가 자동으로 화면을 열고, 끝낼 때는 Dock 아이콘에서 **종료**를 누릅니다.
+
+> Apple 개발자 서명을 받지 않은 앱이라 처음 한 번은 경고가 뜨며 열리지 않습니다.
+> **시스템 설정 → 개인정보 보호 및 보안**에서 **그래도 열기**를 눌러 허용하세요
+> ([사용자 가이드](docs/user-guide.md#실행하기)에 자세한 순서가 있습니다).
+
+### 방법 2 — jar 파일 내려받아 실행 (모든 OS)
+
+[Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에 올라온 `optimeter-<버전>.jar`를 내려받아 **터미널에서** 실행합니다.
+(올라온 릴리스가 없다면 방법 3을 사용하세요. Mac에서 jar를 더블클릭하면 서명 없는 파일이라 열리지 않습니다.)
 
 ```bash
 java -jar optimeter-<버전>.jar
@@ -90,7 +100,7 @@ java -jar optimeter-<버전>.jar
 
 브라우저에서 `http://localhost:8080`을 열면 됩니다. 끝낼 때는 터미널에서 `Ctrl+C`를 누릅니다.
 
-### 방법 2 — 소스에서 바로 실행
+### 방법 3 — 소스에서 바로 실행
 
 저장소를 받은 뒤 명령 하나로 실행합니다. 프론트엔드 빌드에 필요한 Node.js는 빌드가 알아서 내려받습니다.
 
@@ -153,7 +163,7 @@ cd frontend && npm test
 |---|---|
 | [docs/branching-strategy.md](docs/branching-strategy.md) | Git 브랜치 전략 (GitHub Flow) |
 | [docs/commit-convention.md](docs/commit-convention.md) | 커밋 메시지 규칙 (Conventional Commits) |
-| [docs/release.md](docs/release.md) | 릴리스 방법 — 태그를 올리면 jar가 자동으로 만들어져 배포됨 |
+| [docs/release.md](docs/release.md) | 릴리스 방법 — 태그를 올리면 jar와 Mac용 앱(.dmg)이 자동으로 만들어져 배포됨 |
 | [CLAUDE.md](CLAUDE.md) | Claude Code로 작업할 때 지켜야 할 프로젝트 규칙 |
 
 ## 참고 자료

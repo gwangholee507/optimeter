@@ -6,7 +6,8 @@
 **파일**: [`backend/src/main/java/.../OptVisualizerApplication.java`](../backend/src/main/java/com/compareopt/optvisualizer/OptVisualizerApplication.java)
 
 Spring Boot 진입점. `main()`에서 `SpringApplication.run()`을 호출해 내장 톰캣 서버(포트 8080)를 띄웁니다.
-특별한 로직은 없고, 애플리케이션을 부팅하는 역할만 합니다.
+특별한 로직은 없고, 애플리케이션을 부팅하는 역할만 합니다. 단, macOS 앱(.dmg)으로 열린 경우(시스템 속성
+`optimeter.desktop=true`)에는 아래 [`DesktopApp`](#desktopdesktopapp--macos-앱으로-실행될-때)에 부팅을 맡깁니다.
 
 서버 설정은 [`application.yml`](../backend/src/main/resources/application.yml)에 있습니다.
 - `server.address: 127.0.0.1` — 이 PC에서 오는 접속만 받습니다. 받은 코드를 컴파일/실행하는 서버라서
@@ -19,6 +20,27 @@ Spring Boot 진입점. `main()`에서 `SpringApplication.run()`을 호출해 내
 - `spring.web.resources.cache` — 이름에 해시가 없는 화면 파일(`index.html`, `favicon.svg` 등)에
   `Cache-Control: no-cache`를 붙이고 `Last-Modified`는 보내지 않습니다. 해시가 붙은 `/assets/*` 파일은
   아래 [`StaticResourceConfig`](#staticresourceconfig)에서 따로 설정합니다.
+
+---
+
+## `desktop.DesktopApp` — macOS 앱으로 실행될 때
+**파일**: [`desktop/DesktopApp.java`](../backend/src/main/java/com/compareopt/optvisualizer/desktop/DesktopApp.java)
+
+macOS 앱(.dmg, [release.md](./release.md#mac용-앱dmg) 참고)은 같은 jar를 실행 옵션 `-Doptimeter.desktop=true`로 띄웁니다.
+Finder에서 연 앱에는 터미널도 창도 없어서, 그냥 띄우면 서버가 보이지 않게 떠 있기만 하고 끌 방법도 없습니다.
+그래서 이 경우에만 `main()`이 `DesktopApp.run()`으로 넘어와 아래를 덧붙입니다. jar를 터미널에서 띄울 때는 거치지 않습니다.
+
+| 하는 일 | 방법 |
+|---|---|
+| Dock 아이콘과 종료 | `java.awt.headless=false`로 AWT를 켭니다 (Spring Boot는 기본으로 끔). Dock 메뉴의 "종료"나 `Cmd+Q`는 `System.exit(0)` → 서버 정상 종료. 앱 이름은 `apple.awt.application.name`으로 지정 (안 하면 메인 클래스 이름인 "JarLauncher"가 메뉴 막대에 나옴) |
+| 브라우저 열기 | 서버가 뜨면 `Desktop.browse()`로 `http://localhost:<실제 포트>/`를 엽니다. Dock 아이콘을 다시 누르면(`AppReopenedListener`) 또 엽니다. `--optimeter.desktop.open-browser=false`로 끌 수 있음 (CI용) |
+| 포트 충돌 | 시작이 `PortInUseException`으로 실패하고 포트를 직접 지정하지 않았으면 `--server.port=0`(빈 포트)으로 한 번 더 띄웁니다 |
+| 시작 실패 알림 | 그래도 실패하면 가장 안쪽 원인과 로그 위치를 `JOptionPane` 대화상자로 보여주고 종료합니다 (안 그러면 Dock 아이콘이 잠깐 떴다 말없이 사라짐). 대화상자 아이콘은 Dock 아이콘 이미지(로고)를 그대로 씁니다 — 그냥 `ERROR_MESSAGE`로 띄우면 macOS는 빨간 정지 표지판을 크게 그리고 로고는 귀퉁이에 작게만 붙임 |
+| 로그 | `logging.file.name`이 비어 있으면 `~/Library/Logs/Optimeter/optimeter.log`로 정합니다 ("콘솔" 앱에서 볼 수 있는 위치) |
+
+- AWT를 쓸 수 없는 환경이어도 서버는 그대로 띄웁니다 (Dock 연동과 브라우저 열기만 빠지고 경고 로그를 남김).
+- AWT를 쓰지 않는 판단 부분(`isPortInUse`, `hasExplicitPort`, `localUrl`, `logFile`, `startupErrorMessage`)만 단위 테스트합니다.
+  AWT 부분은 화면이 없는 CI에서 돌릴 수 없어서, CI와 릴리스 워크플로가 macOS에서 실제 앱을 띄워보는 것으로 확인합니다.
 
 ---
 
@@ -71,6 +93,14 @@ toolchain이 정한 버전 확인 명령(지금은 모두 `{candidate} --version
     환경 변수로 경로를 직접 지정하는 자리입니다. 환경 변수가 없으면 빈 값이 되어 건너뜁니다.
   - rustc의 `os-candidates`에 있는 `${user.home}`은 서버를 띄운 사용자의 홈 디렉터리로 바뀝니다. rustup은 셸 설정 파일로
     `~/.cargo/bin`을 PATH에 넣기 때문에, 셸을 거치지 않고 서버를 띄우면 PATH에 없을 수 있어서 기본 위치를 후보로 둡니다.
+- `compiler.search-dirs.{windows|macos|linux}`: `candidates` 중 **이름만 적힌 후보**(`gcc-16` 등)를 PATH 밖에서도 찾아볼
+  디렉터리입니다. 지금은 macOS에만 `/opt/homebrew/bin`(Apple Silicon의 Homebrew)과 `/usr/local/bin`(Intel의 Homebrew)이 있습니다.
+  Finder에서 연 macOS 앱은 셸 설정 파일을 거치지 않아 PATH가 `/usr/bin:/bin:/usr/sbin:/sbin`뿐이라, 이게 없으면
+  Homebrew GCC를 찾지 못합니다.
+  - `CompilerRegistry`는 `Option.candidatesFor(HostOs, searchDirsFor(HostOs))`로 후보를 받습니다. 이름만 적힌 후보 **바로 뒤에**
+    각 디렉터리의 같은 이름을 끼워 넣으므로(`gcc-16`, `/opt/homebrew/bin/gcc-16`, `/usr/local/bin/gcc-16`, `gcc-15`, ...),
+    어느 디렉터리에 있든 앞에 적힌(더 새) 버전이 먼저 잡힙니다. 절대 경로 후보와 `os-candidates`에는 붙이지 않습니다.
+  - 이렇게 찾은 컴파일러는 절대 경로라서 아래 `toolDir()`이 그 디렉터리를 자식 프로세스의 PATH에 넣어줍니다.
 - `toolDirOf(executable)` / `ResolvedCompiler.toolDir()`: 절대 경로로 찾은 컴파일러면 그 실행 파일이 들어 있는
   디렉터리를 돌려줍니다 (PATH의 이름으로 찾았으면 `null`). 이 디렉터리는 컴파일러와, 그 컴파일러로 만든
   프로그램을 실행할 때 자식 프로세스의 PATH 맨 앞에 추가됩니다. Windows의 MinGW/MSYS2 GCC는 `gcc.exe`가
@@ -507,4 +537,9 @@ jar에 묶인 화면 파일을 브라우저가 얼마나 캐시할지 정합니�
   ([release.md](./release.md) 참고).
 - CI는 세 OS에서 이 프로필로 jar를 만든 뒤 [`.github/scripts/smoke-test.sh`](../.github/scripts/smoke-test.sh)로
   실제로 띄워서 화면(`/`)과 API(`/api/compilers`, `/api/compile`)가 한 서버에서 나오는지, 화면 파일에 캐시 헤더
-  (`/`는 `no-cache`, `/assets/*`는 `immutable`)가 붙는지, 낯선 `Host`로 온 요청이 403으로 거부되는지 확인합니다.
+  (`/`는 `no-cache`, `/assets/*`는 `immutable`)가 붙는지, 브라우저 탭 아이콘(`/favicon.svg`)이 로고 원본
+  (`docs/brand/logo-mark.svg`)과 같은지, 낯선 `Host`로 온 요청이 403으로 거부되는지 확인합니다.
+  jar는 창 없이 도는 서버라 OS에 앱 아이콘이 생기지 않으므로, 세 OS 모두에서 사용자가 보는 아이콘은 이 파비콘뿐입니다.
+- macOS에서는 CI가 이어서 그 jar로 Mac용 앱(.dmg)을 만들고([`packaging/macos/build-dmg.sh`](../packaging/macos/build-dmg.sh)),
+  [`.github/scripts/smoke-test-dmg.sh`](../.github/scripts/smoke-test-dmg.sh)로 .dmg 안의 앱을 띄워 같은 확인을 합니다.
+  앱에는 필요한 Java 모듈만 넣으므로, 의존성을 바꿨을 때 앱에서만 깨지는 것을 릴리스 전에 잡기 위함입니다.

@@ -94,6 +94,36 @@ class CompilerPropertiesTest {
     }
 
     @Test
+    void macOS에서는_PATH에_없는_Homebrew_디렉터리에서도_이름으로_찾는다() {
+        List<String> dirs = properties.searchDirsFor(HostOs.MACOS);
+        assertThat(dirs).containsExactly("/opt/homebrew/bin", "/usr/local/bin");
+
+        // 같은 버전을 두 Homebrew 위치에서 찾아본 뒤에야 다음(더 낮은) 버전으로 넘어간다
+        assertThat(option("gcc").candidatesFor(HostOs.MACOS, dirs))
+                .startsWith("gcc-16", "/opt/homebrew/bin/gcc-16", "/usr/local/bin/gcc-16", "gcc-15");
+        assertThat(option("gxx").candidatesFor(HostOs.MACOS, dirs)).contains("/opt/homebrew/bin/g++-16");
+        // 절대 경로로 적힌 OS 전용 후보는 그대로 맨 뒤에 붙는다
+        assertThat(option("rustc").candidatesFor(HostOs.MACOS, dirs))
+                .containsExactly("rustc", "/opt/homebrew/bin/rustc", "/usr/local/bin/rustc",
+                        "/home/tester/.cargo/bin/rustc");
+    }
+
+    @Test
+    void 다른_OS에는_추가로_찾아볼_디렉터리가_없다() {
+        assertThat(properties.searchDirsFor(HostOs.LINUX)).isEmpty();
+        assertThat(properties.searchDirsFor(HostOs.WINDOWS)).isEmpty();
+    }
+
+    @Test
+    void 이름만_적힌_후보에만_찾아볼_디렉터리를_붙인다() {
+        CompilerProperties.Option option = new CompilerProperties.Option();
+        option.setCandidates(List.of("cc", "/opt/cc/bin/cc", "C:\\tools\\cc.exe"));
+
+        assertThat(option.candidatesFor(HostOs.MACOS, List.of("/extra/bin/", "/more")))
+                .containsExactly("cc", "/extra/bin/cc", "/more/cc", "/opt/cc/bin/cc", "C:\\tools\\cc.exe");
+    }
+
+    @Test
     void 공통_후보_뒤에_그_OS_전용_후보를_붙인다() {
         CompilerProperties.Option option = new CompilerProperties.Option();
         option.setCandidates(List.of("", "  ", "cc"));
