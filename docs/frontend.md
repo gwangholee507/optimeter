@@ -118,6 +118,21 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 
 ---
 
+## `requestTracker.js`
+**파일**: [`frontend/src/requestTracker.js`](../frontend/src/requestTracker.js)
+
+가장 나중에 보낸 요청의 응답만 화면에 넣게 해 주는 작은 도우미. `requestTracker.test.js`로 테스트합니다.
+`App`이 비교 요청(`POST /api/compile`)에 씁니다 — 비교하는 중에 언어를 바꾸면 이전 언어로 보낸 요청의 응답이
+늦게 와서 새 언어 화면에 뜨는 것을 막기 위해서입니다.
+
+### `createRequestTracker() : { start, invalidate }`
+- `start() : () => boolean`: 새 요청을 시작했다고 기록하고, 그 요청이 아직 "현재 요청"인지 알려주는 함수 `isCurrent`를 돌려줌.
+  그 뒤에 `start()`나 `invalidate()`가 다시 불리면 `isCurrent()`는 `false`가 됨
+- `invalidate()`: 진행 중인 요청을 모두 현재 요청이 아니게 만듦. 요청 자체를 취소하지는 않으므로
+  서버는 그 요청을 끝까지 처리하고, 응답만 화면에서 버려짐
+
+---
+
 ## `App.jsx`
 **파일**: [`frontend/src/App.jsx`](../frontend/src/App.jsx)
 
@@ -226,6 +241,7 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - `language`: 선택된 언어 id (기본 `'c'`)
 - `selectedCompiler`: 선택된 컴파일러 id (기본 `'clang'`)
 - `runBenchmark`: "실행 시간 측정" 체크박스 상태 (기본 `false`, 옵트인)
+- `compareTracker`: 비교 요청의 응답이 아직 쓸모 있는지 가리는 `createRequestTracker()` (처음 한 번만 만들고 바꾸지 않음)
 
 매 렌더링마다 `groupByLanguage(compilers)`로 언어 목록을 만들고, 그중 `language`에 해당하는 것을 현재 언어로 씁니다.
 
@@ -244,18 +260,25 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 2. 새 언어의 `defaultCompilerFor()` 컴파일러를 선택
 3. `results`와 `error`를 지움 — 이전 언어의 결과가 남아 있으면 에디터의 코드와 맞지 않아 헷갈리기 때문
    (컴파일러만 바꿀 때는 코드도 결과도 그대로 둠)
+4. 비교하는 중이었다면 `compareTracker.invalidate()`로 그 요청의 응답을 버리고 `loading = false`.
+   같은 이유로 이전 언어의 응답이 늦게 와도 화면에 넣지 않고, 그 응답을 기다리지 않고 바로 새 언어로 비교할 수 있게 함.
+   서버는 버린 요청도 끝까지 처리함
 
 #### `handleCompare()` (내부 함수, "비교하기" 버튼의 onClick)
-1. `loading = true`, 이전 `results`/`error` 초기화, `baseLevel = null`
+1. `compareTracker.start()`로 이 요청의 `isCurrent`를 받음
+2. `loading = true`, 이전 `results`/`error` 초기화, `baseLevel = null`
    (이전에 고른 기준 레벨이 새 결과에서는 컴파일에 실패했을 수도 있어서 첫 레벨로 되돌림)
-2. `POST /api/compile`로 `{ code, compiler: selectedCompiler, runBenchmark }`를 JSON으로 전송 (언어는 보내지 않음 — 서버가 컴파일러로 정함)
-3. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
+3. `POST /api/compile`로 `{ code, compiler: selectedCompiler, runBenchmark }`를 JSON으로 전송 (언어는 보내지 않음 — 서버가 컴파일러로 정함)
+4. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
    메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
    - 상태코드가 502/503/504면 `BACKEND_UNREACHABLE` 문구를 씀. 개발 서버의 프록시는 백엔드가 꺼져 있으면 502를 돌려줌
-4. 성공하면 `setResults(data)`
-5. `fetch` 자체가 실패(`TypeError`)하면 서버에 연결하지 못한 것이므로 `BACKEND_UNREACHABLE` 문구를 표시
+5. 성공하면 `setResults(data)`
+6. `fetch` 자체가 실패(`TypeError`)하면 서버에 연결하지 못한 것이므로 `BACKEND_UNREACHABLE` 문구를 표시
    (jar로 실행하다 서버를 끈 경우)
-6. `finally`에서 `loading = false` (성공/실패 모두)
+7. `finally`에서 `loading = false` (성공/실패 모두)
+
+5~7은 `isCurrent()`가 `true`일 때만 함. 응답을 기다리는 동안 언어를 바꿨으면 결과도 에러도 화면에 넣지 않고,
+`loading`도 건드리지 않음 — 언어를 바꿀 때 이미 내렸고, 그 뒤에 새 언어로 시작한 비교가 진행 중일 수 있기 때문.
 
 #### 렌더링 흐름
 1. 상단에 로고(`assets/logo-horizontal-dark.svg`)/설명, 줄 번호가 붙은 코드 에디터(`CodeEditor`)
