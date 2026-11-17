@@ -13,6 +13,7 @@ import {
   switchDraft,
 } from './languages'
 import { REMARK_KIND_LABEL, remarkTopic, summarizeRemarks } from './remarks'
+import { createRequestTracker } from './requestTracker'
 
 const BACKEND_UNREACHABLE = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.'
 
@@ -293,6 +294,8 @@ function App() {
   const [language, setLanguage] = useState(INITIAL_LANGUAGE)
   const [selectedCompiler, setSelectedCompiler] = useState(FALLBACK_COMPILERS[0].id)
   const [runBenchmark, setRunBenchmark] = useState(false)
+  // 비교 요청의 응답이 아직 쓸모 있는지 가린다. 비교하는 중에 언어를 바꾸면 이전 언어로 보낸 요청의 응답은 버린다
+  const [compareTracker] = useState(createRequestTracker)
 
   const languages = groupByLanguage(compilers)
   const currentLanguage = languages.find((l) => l.id === language) ?? languages[0]
@@ -330,12 +333,16 @@ function App() {
     setCode(next.code)
     setLanguage(nextLanguage)
     setSelectedCompiler(defaultCompilerFor(languages.find((l) => l.id === nextLanguage)).id)
-    // 이전 언어의 결과가 남아 있으면 에디터의 코드와 맞지 않아 헷갈리므로 지운다
+    // 이전 언어의 결과가 남아 있으면 에디터의 코드와 맞지 않아 헷갈리므로 지운다.
+    // 비교하는 중이었다면 그 요청의 응답도 같은 이유로 버리고, 기다리지 않고 바로 새 언어로 비교할 수 있게 한다
+    compareTracker.invalidate()
+    setLoading(false)
     setResults(null)
     setError(null)
   }
 
   async function handleCompare() {
+    const isCurrent = compareTracker.start()
     setLoading(true)
     setError(null)
     setResults(null)
@@ -356,12 +363,13 @@ function App() {
         throw new Error(body?.message || fallback)
       }
       const data = await res.json()
-      setResults(data)
+      if (isCurrent()) setResults(data)
     } catch (e) {
       // 서버에 아예 연결하지 못하면 fetch가 TypeError를 던진다 (jar로 실행하다 서버를 끈 경우)
-      setError(e instanceof TypeError ? BACKEND_UNREACHABLE : e.message)
+      if (isCurrent()) setError(e instanceof TypeError ? BACKEND_UNREACHABLE : e.message)
     } finally {
-      setLoading(false)
+      // 버린 요청이면 loading은 언어를 바꿀 때 이미 내렸고, 그 뒤에 시작한 비교가 진행 중일 수 있다
+      if (isCurrent()) setLoading(false)
     }
   }
 
