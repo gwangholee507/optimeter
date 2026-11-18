@@ -133,6 +133,25 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 
 ---
 
+## `editorIndent.js`
+**파일**: [`frontend/src/editorIndent.js`](../frontend/src/editorIndent.js)
+
+코드 입력창(`CodeEditor`)에서 Tab을 눌렀을 때 글자를 어떻게 바꿀지 계산하는 순수 함수. `editorIndent.test.js`로 테스트합니다.
+입력창을 직접 건드리지 않고 "어디를 무엇으로 바꾸고 무엇을 선택할지"만 돌려주며, 실제로 바꾸는 일은 `CodeEditor`가 합니다.
+
+- `INDENT`: 들여쓰기 한 번의 크기. 공백 4칸(`'    '`). 탭 문자(`\t`)가 아니라 공백이라서 컴파일 에러 메시지의 열 번호와
+  화면에 보이는 칸이 어긋나지 않습니다
+
+### `indentSelection(text, start, end) : { start, end, insert, selectionStart, selectionEnd }`
+- **입력**: 입력창의 전체 내용과 선택 범위(`selectionStart`/`selectionEnd`, 선택이 없으면 둘이 같음)
+- **출력**: `[start, end)` 구간을 `insert`로 바꾼 뒤 `selectionStart`~`selectionEnd`를 선택하면 됨
+- 선택이 없거나 한 줄 안이면: 그 자리에 공백 4칸을 넣음(고른 글자는 지워짐). 커서는 넣은 공백 바로 뒤
+- 여러 줄을 골랐으면: 선택이 걸친 줄마다 맨 앞에 공백 4칸을 넣고, 그 줄들 전체를 선택함. 그래서 Tab을 다시 누르면 같은 줄들이 한 번 더 들여써짐
+  - 빈 줄에는 넣지 않음 (줄 끝에 공백만 남지 않게)
+  - 선택이 다음 줄의 맨 앞에서 끝나면(마우스로 줄을 통째로 끌어 고른 경우) 그 줄은 걸친 것으로 치지 않음
+
+---
+
 ## `App.jsx`
 **파일**: [`frontend/src/App.jsx`](../frontend/src/App.jsx)
 
@@ -178,6 +197,15 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - 두 칸의 글꼴·크기·줄 높이·위쪽 여백은 바깥 상자(`.code-editor`)에서 물려받아 항상 같습니다. 테두리와 배경도 바깥 상자에 있고,
   입력창에 포커스가 가면 상자 전체의 테두리가 강조색으로 바뀝니다(`:focus-within`)
 - 번호 칸은 `aria-hidden`이고 마우스로 선택되지 않습니다(`user-select: none`). 입력창에는 `aria-label="소스 코드"`를 붙였습니다
+- **Tab 키**(`handleKeyDown`): 브라우저 기본 동작(다음 요소로 포커스 이동)을 막고 공백 4칸을 들여씁니다.
+  무엇을 바꿀지는 [`indentSelection()`](#editorindentjs)이 계산합니다 (여러 줄을 골랐으면 그 줄들을 한꺼번에 들여씀)
+  - 바꿀 구간을 선택한 뒤 `document.execCommand('insertText')`로 넣습니다. 이렇게 해야 Cmd/Ctrl+Z로 되돌릴 수 있고,
+    직접 입력할 때처럼 `input` 이벤트가 나서 `onChange`도 그대로 불립니다. `value`나 `setRangeText()`로 바꾸면 되돌리기 기록에 남지 않습니다.
+    `execCommand`가 `false`를 돌려주는(지원하지 않는) 브라우저에서만 `setRangeText()`로 바꾸고 `onChange`를 직접 부릅니다
+  - Shift+Tab, Ctrl/Cmd/Alt와 함께 누른 Tab은 건드리지 않습니다. 특히 Shift+Tab은 브라우저 기본 동작대로 이전 요소로 포커스가 넘어가므로,
+    키보드만 쓰는 사람도 입력창을 빠져나갈 수 있습니다
+  - 한글을 조합하는 중(`isComposing`)에 들어온 Tab은 포커스 이동만 막고 들여쓰지는 않습니다. 이때의 Tab은 입력기(IME)가 조합을 끝내는 데 쓰므로,
+    글자를 바꾸면 조합 중인 글자와 꼬일 수 있어서입니다 (실제 한글 입력기로는 아직 확인하지 않음)
 - 바꾼 코드는 `onChange(code)`로 올려보냅니다 (`App`의 `setCode`)
 
 ### `AssemblyView({ assembly, lineStates })` (컴포넌트)

@@ -3,6 +3,7 @@ import './App.css'
 import logo from './assets/logo-horizontal-dark.svg'
 import { filterAssembly } from './assemblyFilter'
 import { runDiff } from './diffRunner'
+import { indentSelection } from './editorIndent'
 import {
   FALLBACK_COMPILERS,
   INITIAL_LANGUAGE,
@@ -69,6 +70,25 @@ function CodeEditor({ value, onChange }) {
     syncScroll()
   }, [value])
 
+  // Tab은 다음 요소로 포커스를 넘기지 않고 공백 4칸을 들여쓴다. Shift+Tab은 그대로 두어 키보드만으로도 입력창을 빠져나갈 수 있게 한다
+  function handleKeyDown(e) {
+    if (e.key !== 'Tab' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return
+    e.preventDefault()
+    // 한글을 조합하는 중에 들어온 Tab은 입력기(IME)가 조합을 끝내는 데 쓴다. 이때 글자를 바꾸면 조합 중인 글자와 꼬일 수 있어서
+    // 포커스만 붙잡아 두고 들여쓰지는 않는다
+    if (e.nativeEvent.isComposing) return
+    const textarea = e.currentTarget
+    const edit = indentSelection(textarea.value, textarea.selectionStart, textarea.selectionEnd)
+    textarea.setSelectionRange(edit.start, edit.end)
+    // execCommand로 넣어야 Cmd/Ctrl+Z로 되돌릴 수 있다 (value나 setRangeText로 바꾸면 되돌리기 기록에 남지 않는다).
+    // 이 방식은 입력할 때처럼 input 이벤트를 내므로 onChange도 그대로 불린다. 지원하지 않는 브라우저에서만 직접 바꾼다
+    if (!document.execCommand('insertText', false, edit.insert)) {
+      textarea.setRangeText(edit.insert, edit.start, edit.end)
+      onChange(textarea.value)
+    }
+    textarea.setSelectionRange(edit.selectionStart, edit.selectionEnd)
+  }
+
   return (
     // 번호 칸의 너비는 가장 큰 번호의 자릿수(최소 2자리)에 맞춘다
     <div className="code-editor" style={{ '--line-digits': Math.max(2, String(lineCount).length) }}>
@@ -79,6 +99,7 @@ function CodeEditor({ value, onChange }) {
         ref={textareaRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         onScroll={syncScroll}
         wrap="off"
         spellCheck={false}
