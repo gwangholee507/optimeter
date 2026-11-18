@@ -3,6 +3,7 @@ import './App.css'
 import logo from './assets/logo-horizontal-dark.svg'
 import { filterAssembly } from './assemblyFilter'
 import { runDiff } from './diffRunner'
+import { indentSelection, outdentSelection } from './editorIndent'
 import {
   FALLBACK_COMPILERS,
   INITIAL_LANGUAGE,
@@ -16,6 +17,9 @@ import { REMARK_KIND_LABEL, remarkTopic, summarizeRemarks } from './remarks'
 import { createRequestTracker } from './requestTracker'
 
 const BACKEND_UNREACHABLE = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.'
+
+// 혼자 눌러도 keydown이 오는 보조 키. 코드 입력창에서 Esc 다음에 이 키를 눌러도 Esc를 누른 상태가 풀리지 않는다
+const MODIFIER_KEYS = ['Shift', 'Control', 'Alt', 'Meta']
 
 function formatBytes(bytes) {
   if (bytes == null) return '-'
@@ -69,6 +73,47 @@ function CodeEditor({ value, onChange }) {
     syncScroll()
   }, [value])
 
+  // Esc를 누른 바로 다음의 Tab/Shift+Tab은 들여쓰지 않고 브라우저 기본 동작대로 포커스를 넘긴다.
+  // Tab과 Shift+Tab을 모두 들여쓰기에 쓰므로, 키보드만 쓰는 사람이 입력창에 갇히지 않게 하려는 것이다
+  const tabMovesFocusRef = useRef(false)
+
+  // Tab은 공백 4칸 들여쓰기, Shift+Tab은 한 단계 내어쓰기. 둘 다 다음/이전 요소로 포커스를 넘기지 않는다
+  function handleKeyDown(e) {
+    if (e.key !== 'Tab') {
+      // Esc 다음에 Shift를 누르는 것은 Shift+Tab을 치는 중이므로 Esc를 누른 상태를 그대로 둔다
+      if (!MODIFIER_KEYS.includes(e.key)) tabMovesFocusRef.current = e.key === 'Escape'
+      return
+    }
+    if (tabMovesFocusRef.current) {
+      tabMovesFocusRef.current = false
+      return
+    }
+    if (e.altKey || e.ctrlKey || e.metaKey) return
+    e.preventDefault()
+    // 한글을 조합하는 중에 들어온 Tab은 입력기(IME)가 조합을 끝내는 데 쓴다. 이때 글자를 바꾸면 조합 중인 글자와 꼬일 수 있어서
+    // 포커스만 붙잡아 두고 들여쓰지는 않는다
+    if (e.nativeEvent.isComposing) return
+    const textarea = e.currentTarget
+    const { value: text, selectionStart, selectionEnd } = textarea
+    const edit = e.shiftKey
+      ? outdentSelection(text, selectionStart, selectionEnd)
+      : indentSelection(text, selectionStart, selectionEnd)
+    if (!edit) return
+    textarea.setSelectionRange(edit.start, edit.end)
+    // execCommand로 넣어야 Cmd/Ctrl+Z로 되돌릴 수 있다 (value나 setRangeText로 바꾸면 되돌리기 기록에 남지 않는다).
+    // 이 방식은 입력할 때처럼 input 이벤트를 내므로 onChange도 그대로 불린다. 지원하지 않는 브라우저에서만 직접 바꾼다.
+    // 공백뿐인 줄을 내어쓰면 넣을 글자가 없으므로(insert가 '') 고른 구간을 지우기만 한다
+    const replaced =
+      edit.insert === ''
+        ? document.execCommand('delete')
+        : document.execCommand('insertText', false, edit.insert)
+    if (!replaced) {
+      textarea.setRangeText(edit.insert, edit.start, edit.end)
+      onChange(textarea.value)
+    }
+    textarea.setSelectionRange(edit.selectionStart, edit.selectionEnd)
+  }
+
   return (
     // 번호 칸의 너비는 가장 큰 번호의 자릿수(최소 2자리)에 맞춘다
     <div className="code-editor" style={{ '--line-digits': Math.max(2, String(lineCount).length) }}>
@@ -79,6 +124,10 @@ function CodeEditor({ value, onChange }) {
         ref={textareaRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          tabMovesFocusRef.current = false
+        }}
         onScroll={syncScroll}
         wrap="off"
         spellCheck={false}
