@@ -136,19 +136,27 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 ## `editorIndent.js`
 **파일**: [`frontend/src/editorIndent.js`](../frontend/src/editorIndent.js)
 
-코드 입력창(`CodeEditor`)에서 Tab을 눌렀을 때 글자를 어떻게 바꿀지 계산하는 순수 함수. `editorIndent.test.js`로 테스트합니다.
+코드 입력창(`CodeEditor`)에서 Tab/Shift+Tab을 눌렀을 때 글자를 어떻게 바꿀지 계산하는 순수 함수. `editorIndent.test.js`로 테스트합니다.
 입력창을 직접 건드리지 않고 "어디를 무엇으로 바꾸고 무엇을 선택할지"만 돌려주며, 실제로 바꾸는 일은 `CodeEditor`가 합니다.
 
 - `INDENT`: 들여쓰기 한 번의 크기. 공백 4칸(`'    '`). 탭 문자(`\t`)가 아니라 공백이라서 컴파일 에러 메시지의 열 번호와
   화면에 보이는 칸이 어긋나지 않습니다
+- 두 함수 모두 **입력**은 입력창의 전체 내용과 선택 범위(`selectionStart`/`selectionEnd`, 선택이 없으면 둘이 같음),
+  **출력**은 `{ start, end, insert, selectionStart, selectionEnd }`로, `[start, end)` 구간을 `insert`로 바꾼 뒤
+  `selectionStart`~`selectionEnd`를 선택하면 됩니다
+- "선택이 걸친 줄"을 셀 때, 여러 줄 선택이 다음 줄의 맨 앞에서 끝나면(마우스로 줄을 통째로 끌어 고른 경우) 그 줄은 걸친 것으로 치지 않습니다
 
-### `indentSelection(text, start, end) : { start, end, insert, selectionStart, selectionEnd }`
-- **입력**: 입력창의 전체 내용과 선택 범위(`selectionStart`/`selectionEnd`, 선택이 없으면 둘이 같음)
-- **출력**: `[start, end)` 구간을 `insert`로 바꾼 뒤 `selectionStart`~`selectionEnd`를 선택하면 됨
+### `indentSelection(text, start, end)` (Tab)
 - 선택이 없거나 한 줄 안이면: 그 자리에 공백 4칸을 넣음(고른 글자는 지워짐). 커서는 넣은 공백 바로 뒤
-- 여러 줄을 골랐으면: 선택이 걸친 줄마다 맨 앞에 공백 4칸을 넣고, 그 줄들 전체를 선택함. 그래서 Tab을 다시 누르면 같은 줄들이 한 번 더 들여써짐
-  - 빈 줄에는 넣지 않음 (줄 끝에 공백만 남지 않게)
-  - 선택이 다음 줄의 맨 앞에서 끝나면(마우스로 줄을 통째로 끌어 고른 경우) 그 줄은 걸친 것으로 치지 않음
+- 여러 줄을 골랐으면: 선택이 걸친 줄마다 맨 앞에 공백 4칸을 넣고, 그 줄들 전체를 선택함. 그래서 Tab을 다시 누르면 같은 줄들이 한 번 더 들여써짐.
+  빈 줄에는 넣지 않음 (줄 끝에 공백만 남지 않게)
+
+### `outdentSelection(text, start, end)` (Shift+Tab) — 지울 것이 없으면 `null`
+- 커서가 있는 줄(여러 줄을 골랐으면 걸친 줄마다)의 맨 앞에서 들여쓰기를 한 단계 지움. 커서가 줄의 어디에 있든 줄 맨 앞에서 지움
+  - 한 단계 = 맨 앞의 공백 최대 4칸. 공백이 4칸보다 적으면 있는 만큼, 맨 앞이 공백이 아니라 탭 문자면 그 하나
+  - 들여쓰기가 없는 줄은 그대로 둠. 걸친 줄 모두 들여쓰기가 없으면 `null`을 돌려주고, `CodeEditor`는 아무것도 바꾸지 않음 (되돌리기 기록에 빈 단계가 생기지 않게)
+- 한 줄이면 선택(커서)을 지운 칸만큼 왼쪽으로 옮김. 지운 공백 안에 있었으면 줄 맨 앞으로 감
+- 여러 줄이면 Tab과 같이 그 줄들 전체를 선택함. 그래서 여러 줄을 Tab으로 들여쓴 직후 Shift+Tab을 누르면 원래대로 돌아옴
 
 ---
 
@@ -157,6 +165,7 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 
 ### 상수
 - `BACKEND_UNREACHABLE`: 서버에 연결하지 못했을 때 보여주는 안내 문구
+- `MODIFIER_KEYS`: 혼자 눌러도 `keydown`이 오는 보조 키(Shift, Control, Alt, Meta). 코드 입력창에서 Esc 다음에 눌러도 Esc를 누른 상태가 풀리지 않음 (`CodeEditor` 참고)
 - 백엔드 주소는 상수로 두지 않습니다. API는 항상 화면을 내려준 서버의 상대 경로(`/api/compilers`,
   `/api/compile`)로 호출합니다 — 배포된 jar에서는 백엔드가 화면도 함께 내보내고, 개발 중에는 Vite 개발 서버가
   `/api`를 백엔드로 넘겨주기 때문입니다 (아래 `vite.config.js` 참고).
@@ -197,14 +206,18 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - 두 칸의 글꼴·크기·줄 높이·위쪽 여백은 바깥 상자(`.code-editor`)에서 물려받아 항상 같습니다. 테두리와 배경도 바깥 상자에 있고,
   입력창에 포커스가 가면 상자 전체의 테두리가 강조색으로 바뀝니다(`:focus-within`)
 - 번호 칸은 `aria-hidden`이고 마우스로 선택되지 않습니다(`user-select: none`). 입력창에는 `aria-label="소스 코드"`를 붙였습니다
-- **Tab 키**(`handleKeyDown`): 브라우저 기본 동작(다음 요소로 포커스 이동)을 막고 공백 4칸을 들여씁니다.
-  무엇을 바꿀지는 [`indentSelection()`](#editorindentjs)이 계산합니다 (여러 줄을 골랐으면 그 줄들을 한꺼번에 들여씀)
+- **Tab / Shift+Tab 키**(`handleKeyDown`): 브라우저 기본 동작(다음/이전 요소로 포커스 이동)을 막고, Tab은 공백 4칸 들여쓰기,
+  Shift+Tab은 한 단계 내어쓰기를 합니다. 무엇을 바꿀지는 [`indentSelection()` / `outdentSelection()`](#editorindentjs)이 계산합니다
+  (여러 줄을 골랐으면 그 줄들을 한꺼번에 들여쓰거나 내어씀)
   - 바꿀 구간을 선택한 뒤 `document.execCommand('insertText')`로 넣습니다. 이렇게 해야 Cmd/Ctrl+Z로 되돌릴 수 있고,
     직접 입력할 때처럼 `input` 이벤트가 나서 `onChange`도 그대로 불립니다. `value`나 `setRangeText()`로 바꾸면 되돌리기 기록에 남지 않습니다.
+    공백뿐인 줄을 내어써서 넣을 글자가 없으면(`insert`가 `''`) `execCommand('delete')`로 구간을 지우기만 합니다.
     `execCommand`가 `false`를 돌려주는(지원하지 않는) 브라우저에서만 `setRangeText()`로 바꾸고 `onChange`를 직접 부릅니다
-  - Shift+Tab, Ctrl/Cmd/Alt와 함께 누른 Tab은 건드리지 않습니다. 특히 Shift+Tab은 브라우저 기본 동작대로 이전 요소로 포커스가 넘어가므로,
-    키보드만 쓰는 사람도 입력창을 빠져나갈 수 있습니다
-  - 한글을 조합하는 중(`isComposing`)에 들어온 Tab은 포커스 이동만 막고 들여쓰지는 않습니다. 이때의 Tab은 입력기(IME)가 조합을 끝내는 데 쓰므로,
+  - **Esc를 누른 바로 다음의 Tab/Shift+Tab**은 건드리지 않아 브라우저 기본 동작대로 포커스가 넘어갑니다. Tab과 Shift+Tab을 모두 들여쓰기에 쓰므로,
+    키보드만 쓰는 사람이 입력창에 갇히지 않게 하려는 것입니다(`tabMovesFocusRef`). Esc 다음에 다른 키를 누르거나 입력창에서 포커스가 빠지면 풀립니다.
+    단, Shift 같은 보조 키(`MODIFIER_KEYS`)는 Esc를 누른 상태를 풀지 않습니다 — Esc 다음에 Shift+Tab을 치려면 Shift를 먼저 누르기 때문입니다
+  - Ctrl/Cmd/Alt와 함께 누른 Tab은 건드리지 않습니다
+  - 한글을 조합하는 중(`isComposing`)에 들어온 Tab/Shift+Tab은 포커스 이동만 막고 글자는 바꾸지 않습니다. 이때의 Tab은 입력기(IME)가 조합을 끝내는 데 쓰므로,
     글자를 바꾸면 조합 중인 글자와 꼬일 수 있어서입니다 (실제 한글 입력기로는 아직 확인하지 않음)
 - 바꾼 코드는 `onChange(code)`로 올려보냅니다 (`App`의 `setCode`)
 

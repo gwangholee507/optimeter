@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { INDENT, indentSelection } from './editorIndent'
+import { INDENT, indentSelection, outdentSelection } from './editorIndent'
 
-// indentSelection이 돌려준 대로 바꾼 결과 글자와 선택 범위
-function apply(text, start, end) {
-  const edit = indentSelection(text, start, end)
+// 계산한 대로 바꾼 결과 글자와 선택 범위
+function applyEdit(text, edit) {
   return {
     text: text.slice(0, edit.start) + edit.insert + text.slice(edit.end),
     selection: [edit.selectionStart, edit.selectionEnd],
   }
 }
+
+const apply = (text, start, end) => applyEdit(text, indentSelection(text, start, end))
+const applyOutdent = (text, start, end) => applyEdit(text, outdentSelection(text, start, end))
 
 describe('indentSelection', () => {
   it('들여쓰기는 공백 4칸이다', () => {
@@ -59,5 +61,55 @@ describe('indentSelection', () => {
       text: 'if (x) {\n        y();\n    }',
       selection: [9, 27],
     })
+  })
+})
+
+describe('outdentSelection', () => {
+  it('커서가 줄 가운데에 있어도 줄 맨 앞의 공백 4칸을 지우고 커서를 그만큼 왼쪽으로 옮긴다', () => {
+    expect(applyOutdent('    return x;', 8, 8)).toEqual({ text: 'return x;', selection: [4, 4] })
+  })
+
+  it('커서가 있는 줄만 내어쓴다', () => {
+    expect(applyOutdent('a {\n        b;\n}', 14, 14)).toEqual({ text: 'a {\n    b;\n}', selection: [10, 10] })
+  })
+
+  it('공백이 4칸보다 적으면 있는 만큼만 지운다', () => {
+    expect(applyOutdent('  x', 3, 3)).toEqual({ text: 'x', selection: [1, 1] })
+  })
+
+  it('커서가 지운 공백 안에 있었으면 줄 맨 앞으로 간다', () => {
+    expect(applyOutdent('      x', 2, 2)).toEqual({ text: '  x', selection: [0, 0] })
+  })
+
+  it('맨 앞이 탭 문자면 그 하나를 지운다', () => {
+    expect(applyOutdent('\tx', 2, 2)).toEqual({ text: 'x', selection: [1, 1] })
+  })
+
+  it('한 줄 안에서 고른 범위는 지운 칸만큼 왼쪽으로 옮겨 그대로 선택해 둔다', () => {
+    expect(applyOutdent('        foo();', 8, 11)).toEqual({ text: '    foo();', selection: [4, 7] })
+  })
+
+  it('지울 들여쓰기가 없으면 null을 돌려준다', () => {
+    expect(outdentSelection('x;', 1, 1)).toBeNull()
+    expect(outdentSelection('', 0, 0)).toBeNull()
+    expect(outdentSelection('a;\nb;', 0, 5)).toBeNull()
+  })
+
+  it('여러 줄을 고르면 걸친 줄마다 한 단계씩 내어쓰고 그 줄들을 통째로 선택한다', () => {
+    expect(applyOutdent('    a;\n        b;\nc;', 2, 10)).toEqual({ text: 'a;\n    b;\nc;', selection: [0, 9] })
+  })
+
+  it('고른 줄 중 들여쓰기가 없는 줄은 그대로 둔다', () => {
+    expect(applyOutdent('a;\n    b;', 0, 9)).toEqual({ text: 'a;\nb;', selection: [0, 5] })
+  })
+
+  it('선택이 다음 줄의 맨 앞에서 끝나면 그 줄은 내어쓰지 않는다', () => {
+    expect(applyOutdent('    a;\n    b;', 0, 7)).toEqual({ text: 'a;\n    b;', selection: [0, 3] })
+  })
+
+  it('여러 줄을 Tab으로 들여쓴 뒤 바로 Shift+Tab을 누르면 원래대로 돌아온다', () => {
+    const text = 'int f() {\n    return 1;\n}'
+    const indented = apply(text, 0, text.length)
+    expect(applyOutdent(indented.text, ...indented.selection)).toEqual({ text, selection: [0, text.length] })
   })
 })
