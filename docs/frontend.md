@@ -160,6 +160,22 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 
 ---
 
+## `sourceLines.js`
+**파일**: [`frontend/src/sourceLines.js`](../frontend/src/sourceLines.js)
+
+최적화 기록의 줄 번호를 눌렀을 때 코드 입력창의 어느 글자로 갈지 계산하는 순수 함수. `sourceLines.test.js`로 테스트합니다.
+실제로 커서를 옮기고 스크롤하는 일은 `CodeEditor`의 `goToLine()`이 합니다.
+
+### `locateLine(text, line) : { line, caret }`
+- `text`의 `line`번째 줄(1부터)을 찾아, 실제로 찾은 줄 번호와 커서를 둘 위치(`caret`, 글자 인덱스)를 돌려줌
+- 커서는 들여쓰기(공백·탭)를 건너뛴 첫 글자 앞. 공백뿐인 줄이면 줄 끝, 빈 줄이면 그 줄의 자리
+- 줄 번호가 범위를 벗어나면 맞춤: 줄 수보다 크면 마지막 줄(비교한 뒤 코드를 줄인 경우), 0·음수·숫자가 아닌 값이면 첫 줄
+- 줄은 `\n`으로만 나눔 (`\r\n`이어도 줄 번호는 같음. 입력창은 줄바꿈을 `\n`으로 바꿔서 가지고 있음)
+- 컴파일러가 알려주는 칸 번호(`OptRemark.column`)는 쓰지 않음. clang은 바이트 단위, GCC는 화면 칸 단위(탭과 한글을 넓게 셈)라서
+  한글이 섞인 줄에서는 입력창의 글자 위치와 맞지 않음
+
+---
+
 ## `App.jsx`
 **파일**: [`frontend/src/App.jsx`](../frontend/src/App.jsx)
 
@@ -192,7 +208,7 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - 1ms 미만이면 마이크로초로 바꿔 `"420µs"`처럼 표시 (짧은 함수는 실행 시간이 1ms를 안 넘는 경우가 많아서)
 - 그 이상이면 `"3.42ms"`처럼 소수점 2자리 ms로 표시
 
-### `CodeEditor({ value, onChange })` (컴포넌트)
+### `CodeEditor({ value, onChange, ref })` (컴포넌트)
 화면 위쪽의 코드 입력창. 외부 편집기 라이브러리 없이 `<textarea>` 왼쪽에 줄 번호 칸(`code-gutter`)을 붙였습니다.
 최적화 기록의 `7행`이나 컴파일 에러의 `input.c:7:3`이 어느 줄인지 바로 찾게 하려는 것입니다.
 - 줄 번호는 `value`를 `\n`으로 나눈 줄 수만큼 `1\n2\n3…`을 `<pre>` 하나에 넣어 그립니다. `useMemo`로 줄 수가 바뀔 때만 다시 만듭니다
@@ -220,6 +236,18 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
   - 한글을 조합하는 중(`isComposing`)에 들어온 Tab/Shift+Tab은 포커스 이동만 막고 글자는 바꾸지 않습니다. 이때의 Tab은 입력기(IME)가 조합을 끝내는 데 쓰므로,
     글자를 바꾸면 조합 중인 글자와 꼬일 수 있어서입니다 (실제 한글 입력기로는 아직 확인하지 않음)
 - 바꾼 코드는 `onChange(code)`로 올려보냅니다 (`App`의 `setCode`)
+- **`ref`로 `goToLine(line)`을 내줍니다** (`useImperativeHandle`. React 19라서 `forwardRef` 없이 `ref`를 prop으로 받음).
+  최적화 기록의 줄 번호를 누르면 `App`이 이것을 부릅니다
+  1. `locateLine()`으로 그 줄의 첫 글자 위치를 구해 입력창에 포커스를 주고 커서를 옮김. 비교한 뒤 코드를 줄였으면 마지막 줄로 감
+  2. 그 줄이 입력창 가운데 오게 입력창을 세로로 스크롤하고, 가로 스크롤은 맨 왼쪽으로 되돌림. 줄 높이와 위쪽 여백은 `getComputedStyle`로 읽음
+  3. 페이지를 입력창까지 스크롤함(`scrollIntoView({ block: 'nearest' })`, `.code-editor`의 `scroll-margin` 1rem만큼 띄움).
+     입력창을 화면보다 길게 늘려 놓아서 그 줄이 화면 밖이면 그 줄이 화면 가운데 오게 더 옮김.
+     부드러운 스크롤은 쓰지 않음 — 스크롤하는 동안 다시 누르거나 스크롤하면 멈추고, 브라우저 창이 가려져 있으면 아예 움직이지 않음.
+     포커스를 줄 때는 `preventScroll`로 브라우저가 따로 페이지를 스크롤하지 않게 함
+  4. 그 줄을 강조함(`.code-line-highlight`): 줄 번호 칸부터 입력창 끝까지 가로지르는 띠를 글자 뒤에 깔고, 처음 1.2초는 진하게 칠했다가 옅어짐
+     (같은 줄을 다시 눌러도 다시 깜빡이도록 누를 때마다 `key`를 바꿈. `prefers-reduced-motion`이면 깜빡이지 않음).
+     띠의 위치는 CSS에서 `--highlight-line`과 줄 높이(`1.5em`)로 정하고, 번호 목록처럼 입력창이 스크롤한 만큼 `translateY`로 밀어 올림
+- 강조는 그 줄로 갔을 때의 코드와 지금 코드가 같을 때만 보입니다. 글자를 고치면 그 줄이 다른 내용이 될 수 있으므로 사라집니다
 
 ### `AssemblyView({ assembly, lineStates })` (컴포넌트)
 어셈블리 텍스트를 줄 단위 `<div>`로 쪼개서 렌더링. `lineStates`는 `diffLines()`가 돌려준 줄별 상태입니다.
@@ -239,16 +267,18 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 바꾸면 `onChange(checked)`로 올려보냅니다 (`App`의 `setHideDirectives`). 다시 컴파일하지 않고 화면에서만 바뀝니다.
 "실행 시간 측정" 체크박스와 같은 `option-toggle` 스타일을 씁니다.
 
-### `RemarkPanel({ remarks, omittedCount })` (컴포넌트)
+### `RemarkPanel({ remarks, omittedCount, onGoToLine })` (컴포넌트)
 컬럼 안에서 열 제목과 어셈블리 사이에 놓이는 "최적화 기록" 영역. 컴파일러가 그 레벨에서 남긴 remark를 보여줍니다.
 - `remarks`가 `null`이면(remark를 내지 않는 rustc) 아무것도 그리지 않음
 - `<details open>`이라 처음에는 펼쳐져 있고, 제목 줄을 누르면 접힘. 제목 줄에는 `summarizeRemarks()`의 "적용 N · 놓침 M"을 표시
 - 항목마다 초록색 "적용" / 노란색 "놓침", 소스 줄 번호(`7행`), 종류 이름(`remarkTopic()`), 컴파일러의 원문 메시지를 표시.
+  줄 번호는 버튼이라 누르면(키보드로는 Enter/Space) `onGoToLine(line)`으로 코드 입력창의 그 줄로 감. 평소에는 점선 밑줄만 그어 글자처럼 보이고,
+  마우스를 올리면 강조색과 실선 밑줄, `title`로 "코드 입력창의 7행으로 이동"을 보여줌.
   `topicDescription`이 있으면 종류 이름에 점선 밑줄을 긋고 `title`로 설명을 붙임. `count`가 2 이상이면 메시지 뒤에 `×2`
 - 목록은 높이를 제한하고 안에서 스크롤함 (레벨마다 건수가 달라도 어셈블리가 너무 아래로 밀리지 않게)
 - `remarks`가 빈 배열이면 "이 레벨에서 컴파일러가 남긴 기록이 없습니다.", `omittedCount`가 있으면 생략한 건수를 표시
 
-### `OptimizationColumn({ result, base })` (컴포넌트)
+### `OptimizationColumn({ result, base, onGoToLine })` (컴포넌트)
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과입니다
 (기본은 응답의 첫 번째 레벨, `BaseLevelSelector`로 고르면 그 레벨).
 `result`와 `base`는 `App`의 `shownResults`에서 오므로, "지시어 숨기기"가 켜져 있으면 `assembly`가 이미 걸러진 텍스트입니다.
@@ -264,7 +294,8 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - 측정을 시도했지만 실패했으면(주로 `main()` 없음, Rust는 패닉으로 끝난 경우도 포함) `executionError`를 툴팁으로 붙인
   회색 "⏱ 실행 불가" 배지를 대신 표시 — 컴파일 자체는 성공이므로 에러로 취급하지 않음
 - `result.notice`가 있으면 어셈블리 위에 노란색 안내 문구를 표시 (예: Rust에서 어셈블리에 함수가 없는 이유)
-- 컴파일에 성공했으면 어셈블리 위에 `RemarkPanel`(`result.remarks`, `result.omittedRemarkCount`)을 표시
+- 컴파일에 성공했으면 어셈블리 위에 `RemarkPanel`(`result.remarks`, `result.omittedRemarkCount`, `onGoToLine`)을 표시.
+  `onGoToLine`은 `App`이 `useCallback`으로 한 번만 만든 함수라 `memo`를 깨지 않음
 - 컴파일 실패 시 헤더에 빨간 "컴파일 실패" 배지를 띄우고, 본문에는
   `"⚠ {compilerLabel}가 이 코드를 컴파일하지 못했습니다"` 안내와 함께 `errorMessage`(정리된 컴파일러 stderr)를 표시
 
@@ -273,6 +304,7 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - `code`: 코드 에디터(`CodeEditor`)에 입력된 코드 (처음에는 `SAMPLE_CODE.c`)
 - `drafts`: 언어 id별로 편집하던 코드. 다른 언어에 갔다가 돌아오면 여기서 복원 (메모리에만 있어서 새로고침하면 사라짐)
 - `results`: 백엔드 응답(`OptimizationResult` 배열), 아직 요청 전이면 `null`
+- `comparedCode`: `results`를 만든 코드. 지금 코드와 다르면 최적화 기록 안내에 "줄 번호가 어긋날 수 있다"는 문구를 덧붙임
 - `baseLevel`: "비교 기준"으로 고른 레벨 id. `null`이면 첫 번째 결과를 기준으로 씀.
   렌더링할 때 `shownResults`에서 이 id를 찾고, 없으면 `shownResults[0]`을 기준(`base`)으로 삼음
 - `hideDirectives`: "지시어 숨기기" 체크박스 상태 (기본 `true`). 다시 비교해도 유지됨
@@ -283,6 +315,9 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - `selectedCompiler`: 선택된 컴파일러 id (기본 `'clang'`)
 - `runBenchmark`: "실행 시간 측정" 체크박스 상태 (기본 `false`, 옵트인)
 - `compareTracker`: 비교 요청의 응답이 아직 쓸모 있는지 가리는 `createRequestTracker()` (처음 한 번만 만들고 바꾸지 않음)
+
+상태가 아닌 것: `editorRef`(`CodeEditor`의 `goToLine`을 부르는 ref)와, 그것을 부르는 `goToLine(line)`(`useCallback`으로 한 번만 만듦 —
+`OptimizationColumn`에 넘기므로 렌더링마다 새로 만들면 `memo`가 소용없어짐).
 
 매 렌더링마다 `groupByLanguage(compilers)`로 언어 목록을 만들고, 그중 `language`에 해당하는 것을 현재 언어로 씁니다.
 
@@ -313,7 +348,7 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 4. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
    메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
    - 상태코드가 502/503/504면 `BACKEND_UNREACHABLE` 문구를 씀. 개발 서버의 프록시는 백엔드가 꺼져 있으면 502를 돌려줌
-5. 성공하면 `setResults(data)`
+5. 성공하면 `setResults(data)`, `setComparedCode(code)` (요청을 보낼 때의 코드)
 6. `fetch` 자체가 실패(`TypeError`)하면 서버에 연결하지 못한 것이므로 `BACKEND_UNREACHABLE` 문구를 표시
    (jar로 실행하다 서버를 끈 경우)
 7. `finally`에서 `loading = false` (성공/실패 모두)
@@ -332,7 +367,8 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 4. `results`가 있으면:
    - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
    - `BaseLevelSelector`("비교 기준" 버튼 그룹)와 `DirectiveFilterToggle`("지시어 숨기기")을 한 줄(`results-toolbar`)에 배치
-   - `remarks`가 있는 결과가 하나라도 있으면 "최적화 기록"의 적용/놓침/줄 번호가 무엇인지 한 줄 안내
+   - `remarks`가 있는 결과가 하나라도 있으면 "최적화 기록"의 적용/놓침이 무엇이고 줄 번호를 누르면 입력창의 그 줄로 간다는 한 줄 안내.
+     비교한 뒤 코드를 고쳤으면(`code !== comparedCode`) 노란색으로 "줄 번호가 지금 코드와 어긋날 수 있습니다"를 덧붙임
    - `base`(기본은 `shownResults[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 `shownResults`의 각 결과를 `OptimizationColumn`으로 렌더링
 
 ---

@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import logo from './assets/logo-horizontal-dark.svg'
 import { filterAssembly } from './assemblyFilter'
@@ -15,6 +15,7 @@ import {
 } from './languages'
 import { REMARK_KIND_LABEL, remarkTopic, summarizeRemarks } from './remarks'
 import { createRequestTracker } from './requestTracker'
+import { locateLine } from './sourceLines'
 
 const BACKEND_UNREACHABLE = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.'
 
@@ -52,9 +53,16 @@ function InfoTooltip({ text, align }) {
 
 // 왼쪽에 줄 번호를 붙인 코드 입력창. 최적화 기록의 "7행"이나 컴파일 에러의 "input.c:7:3"이 어느 줄인지 바로 찾을 수 있게 한다.
 // 긴 줄을 접어서 보여주면 번호와 줄이 어긋나므로 접지 않고(wrap="off") 가로로 스크롤한다.
-function CodeEditor({ value, onChange }) {
+// ref로 goToLine(line)을 내준다. 최적화 기록의 줄 번호를 누르면 App이 이것을 불러 그 줄로 커서를 옮기고 줄을 강조한다.
+function CodeEditor({ value, onChange, ref }) {
+  const editorRef = useRef(null)
   const textareaRef = useRef(null)
   const numbersRef = useRef(null)
+  const highlightRef = useRef(null)
+  // goToLine으로 간 줄과 그때의 코드. 코드를 고치면 그 줄이 다른 내용이 될 수 있으므로 강조를 지운다.
+  // count는 같은 줄을 다시 눌러도 강조가 한 번 더 깜빡이게 하려는 것이다 (key로 써서 애니메이션을 다시 시작한다)
+  const [jump, setJump] = useState(null)
+  const highlightedLine = jump?.code === value ? jump.line : null
   const lineCount = value.split('\n').length
   // 글자를 칠 때마다가 아니라 줄 수가 바뀔 때만 번호를 다시 만든다
   const lineNumbers = useMemo(
@@ -64,14 +72,48 @@ function CodeEditor({ value, onChange }) {
 
   // 번호 칸은 스스로 스크롤하지 않고, 입력창이 스크롤한 만큼 위로 밀어 올린다.
   // 번호 칸에 따로 스크롤을 주면 입력창 아래에 생기는 가로 스크롤바 높이만큼 맨 끝에서 어긋난다
+  // 줄 강조도 같은 방법으로 입력창을 따라 움직인다
   function syncScroll() {
-    numbersRef.current.style.transform = `translateY(${-textareaRef.current.scrollTop}px)`
+    const offset = `translateY(${-textareaRef.current.scrollTop}px)`
+    numbersRef.current.style.transform = offset
+    if (highlightRef.current) highlightRef.current.style.transform = offset
   }
 
-  // 언어를 바꾸거나 예제로 되돌려서 코드가 짧아지면 브라우저가 스크롤 위치를 줄이는데, 이때는 scroll 이벤트가 오지 않을 수 있다
+  // 언어를 바꾸거나 예제로 되돌려서 코드가 짧아지면 브라우저가 스크롤 위치를 줄이는데, 이때는 scroll 이벤트가 오지 않을 수 있다.
+  // 줄 강조는 새로 그려질 때 아직 스크롤 위치를 모르므로 여기서 맞춘다
   useLayoutEffect(() => {
     syncScroll()
-  }, [value])
+  }, [value, jump])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      // line번째 줄(1부터)의 첫 글자 앞으로 커서를 옮기고, 그 줄이 입력창 가운데에 오게 스크롤한 뒤 강조한다.
+      // 비교한 뒤 코드를 줄였으면 마지막 줄로 간다 (locateLine)
+      goToLine(line) {
+        const textarea = textareaRef.current
+        const target = locateLine(textarea.value, line)
+        setJump((prev) => ({ line: target.line, code: textarea.value, count: (prev?.count ?? 0) + 1 }))
+        // focus가 알아서 페이지를 스크롤하면 입력창이 화면 맨 위나 맨 아래에 붙으므로, 스크롤은 아래에서 직접 한다
+        textarea.focus({ preventScroll: true })
+        textarea.setSelectionRange(target.caret, target.caret)
+        const style = getComputedStyle(textarea)
+        const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5
+        const lineTop = parseFloat(style.paddingTop) + (target.line - 1) * lineHeight
+        textarea.scrollTop = lineTop + lineHeight / 2 - textarea.clientHeight / 2
+        textarea.scrollLeft = 0
+        syncScroll()
+        // 결과를 보다가 누르므로 페이지를 입력창까지 올린다. 부드럽게 스크롤하면 그동안 또 누르거나 스크롤할 때 멈추므로 바로 옮기고,
+        // 어디로 왔는지는 줄 강조가 깜빡여서 알려준다. 입력창을 화면보다 길게 늘려 놓았으면 그 줄이 화면 가운데 오게 더 옮긴다
+        editorRef.current.scrollIntoView({ block: 'nearest' })
+        const lineY = textarea.getBoundingClientRect().top + lineTop - textarea.scrollTop
+        if (lineY < 0 || lineY + lineHeight > window.innerHeight) {
+          window.scrollBy(0, lineY + lineHeight / 2 - window.innerHeight / 2)
+        }
+      },
+    }),
+    [],
+  )
 
   // Esc를 누른 바로 다음의 Tab/Shift+Tab은 들여쓰지 않고 브라우저 기본 동작대로 포커스를 넘긴다.
   // Tab과 Shift+Tab을 모두 들여쓰기에 쓰므로, 키보드만 쓰는 사람이 입력창에 갇히지 않게 하려는 것이다
@@ -116,7 +158,20 @@ function CodeEditor({ value, onChange }) {
 
   return (
     // 번호 칸의 너비는 가장 큰 번호의 자릿수(최소 2자리)에 맞춘다
-    <div className="code-editor" style={{ '--line-digits': Math.max(2, String(lineCount).length) }}>
+    <div
+      ref={editorRef}
+      className="code-editor"
+      style={{ '--line-digits': Math.max(2, String(lineCount).length) }}
+    >
+      {highlightedLine != null && (
+        <div
+          key={jump.count}
+          ref={highlightRef}
+          className="code-line-highlight"
+          style={{ '--highlight-line': highlightedLine }}
+          aria-hidden="true"
+        />
+      )}
       <div className="code-gutter" aria-hidden="true">
         <pre ref={numbersRef}>{lineNumbers}</pre>
       </div>
@@ -183,7 +238,8 @@ function BaseLevelSelector({ results, base, onSelect }) {
 
 // 컴파일러가 이 레벨에서 남긴 최적화 remark. 어셈블리 위에 접을 수 있는 목록으로 보여준다.
 // remarks가 null이면 remark를 내지 않는 컴파일러(rustc)라서 아무것도 그리지 않는다.
-function RemarkPanel({ remarks, omittedCount }) {
+// 줄 번호를 누르면 onGoToLine(line)으로 코드 입력창의 그 줄로 간다.
+function RemarkPanel({ remarks, omittedCount, onGoToLine }) {
   if (remarks == null) return null
   const { applied, missed } = summarizeRemarks(remarks)
 
@@ -209,7 +265,14 @@ function RemarkPanel({ remarks, omittedCount }) {
                 >
                   {REMARK_KIND_LABEL[remark.kind] ?? remark.kind}
                 </span>
-                <span className="remark-line">{remark.line}행</span>
+                <button
+                  type="button"
+                  className="remark-line"
+                  title={`코드 입력창의 ${remark.line}행으로 이동`}
+                  onClick={() => onGoToLine(remark.line)}
+                >
+                  {remark.line}행
+                </button>
                 {topic && (
                   <span
                     className={remark.topicDescription ? 'remark-topic remark-topic-known' : 'remark-topic'}
@@ -268,7 +331,8 @@ function useDiffSummary(baseAssembly, assembly) {
 
 // base: 비교 기준이 되는 결과 (기본값은 서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
 // 에디터에 글자를 칠 때마다 App이 다시 그려지므로 memo로 결과가 바뀔 때만 다시 그린다.
-const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
+// onGoToLine은 최적화 기록의 줄 번호를 눌렀을 때 부른다. memo가 깨지지 않게 App이 바뀌지 않는 함수를 넘긴다.
+const OptimizationColumn = memo(function OptimizationColumn({ result, base, onGoToLine }) {
   const isBaseline = result.level === base.level
   const baseAssembly = !isBaseline && base.success ? base.assembly : null
   const comparing = result.success && baseAssembly != null
@@ -313,7 +377,11 @@ const OptimizationColumn = memo(function OptimizationColumn({ result, base }) {
       </div>
       {result.notice && <p className="result-notice">ⓘ {result.notice}</p>}
       {result.success && (
-        <RemarkPanel remarks={result.remarks} omittedCount={result.omittedRemarkCount} />
+        <RemarkPanel
+          remarks={result.remarks}
+          omittedCount={result.omittedRemarkCount}
+          onGoToLine={onGoToLine}
+        />
       )}
       {result.success ? (
         <AssemblyView assembly={result.assembly} lineStates={diffSummary?.lineStates} />
@@ -332,6 +400,8 @@ function App() {
   // 언어별로 편집하던 코드. 다른 언어로 갔다가 돌아오면 여기서 복원한다 (새로고침하면 사라짐)
   const [drafts, setDrafts] = useState({})
   const [results, setResults] = useState(null)
+  // results를 만든 코드. 그 뒤에 코드를 고치면 최적화 기록의 줄 번호가 지금 코드와 어긋날 수 있다고 알려준다
+  const [comparedCode, setComparedCode] = useState(null)
   // 비교 기준으로 고른 레벨 id. null이면 서버가 준 첫 번째 레벨을 기준으로 삼는다
   const [baseLevel, setBaseLevel] = useState(null)
   // 다시 비교해도 유지한다 (사용자가 끈 상태로 계속 보고 싶을 수 있다)
@@ -345,6 +415,9 @@ function App() {
   const [runBenchmark, setRunBenchmark] = useState(false)
   // 비교 요청의 응답이 아직 쓸모 있는지 가린다. 비교하는 중에 언어를 바꾸면 이전 언어로 보낸 요청의 응답은 버린다
   const [compareTracker] = useState(createRequestTracker)
+  const editorRef = useRef(null)
+  // 최적화 기록의 줄 번호를 누르면 코드 입력창의 그 줄로 간다. OptimizationColumn의 memo를 깨지 않도록 한 번만 만든다
+  const goToLine = useCallback((line) => editorRef.current?.goToLine(line), [])
 
   const languages = groupByLanguage(compilers)
   const currentLanguage = languages.find((l) => l.id === language) ?? languages[0]
@@ -412,7 +485,10 @@ function App() {
         throw new Error(body?.message || fallback)
       }
       const data = await res.json()
-      if (isCurrent()) setResults(data)
+      if (isCurrent()) {
+        setResults(data)
+        setComparedCode(code)
+      }
     } catch (e) {
       // 서버에 아예 연결하지 못하면 fetch가 TypeError를 던진다 (jar로 실행하다 서버를 끈 경우)
       if (isCurrent()) setError(e instanceof TypeError ? BACKEND_UNREACHABLE : e.message)
@@ -434,7 +510,7 @@ function App() {
       </header>
 
       <section className="editor-section">
-        <CodeEditor value={code} onChange={setCode} />
+        <CodeEditor ref={editorRef} value={code} onChange={setCode} />
 
         <div className="controls-row">
           <label className="select-field">
@@ -506,13 +582,19 @@ function App() {
             <p className="remark-help">
               열마다 있는 <strong>최적화 기록</strong>은 컴파일러가 그 레벨에서 직접 남긴 것입니다.{' '}
               <span className="remark-applied">적용</span>은 실제로 한 최적화,{' '}
-              <span className="remark-missed">놓침</span>은 하려다 못 한 최적화이고, 앞의 숫자는 위 코드 입력창 왼쪽에
-              표시된 줄 번호입니다.
+              <span className="remark-missed">놓침</span>은 하려다 못 한 최적화입니다. 앞의 줄 번호를 누르면 위 코드
+              입력창의 그 줄로 이동합니다.
+              {code !== comparedCode && (
+                <span className="remark-help-stale">
+                  {' '}
+                  비교한 뒤에 코드를 고쳐서 줄 번호가 지금 코드와 어긋날 수 있습니다.
+                </span>
+              )}
             </p>
           )}
           <div className="results-section">
             {shownResults.map((r) => (
-              <OptimizationColumn key={r.level} result={r} base={base} />
+              <OptimizationColumn key={r.level} result={r} base={base} onGoToLine={goToLine} />
             ))}
           </div>
         </section>
