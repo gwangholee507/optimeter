@@ -521,6 +521,12 @@ macOS의 `g++`는 Homebrew GCC에 `g++-16`처럼 버전이 붙어 들어 있습�
 Visual Studio에서 가져다 쓰므로 **Visual Studio Build Tools의 "C++를 사용한 데스크톱 개발"** 을 설치하거나,
 [MSYS2로 설치한 컴파일러](#windows에서-컴파일러-준비하기)를 쓰세요.
 
+**Q. Windows에서 C++ 코드를 clang++로 비교하면 `error STL1000: Unexpected compiler version, expected Clang 22 or newer`가 나와요.**
+LLVM 공식 설치 프로그램의 clang++이 Visual Studio보다 오래된 경우입니다. clang++은 C++ 표준 라이브러리를 Visual Studio에서
+가져다 쓰는데, Visual Studio를 업데이트하면 그 표준 라이브러리가 너무 오래된 clang을 거부합니다(Visual Studio 2026의 14.52부터 Clang 22 이상).
+[LLVM](https://github.com/llvm/llvm-project/releases)을 최신 버전으로 다시 설치하거나, [MSYS2로 설치한 컴파일러](#windows에서-컴파일러-준비하기)를 쓰세요.
+C 코드와 GNU G++는 영향을 받지 않습니다.
+
 **Q. 언어 드롭다운의 "Rust"가 비활성화되어 있어요.**
 서버가 `rustc`를 찾지 못했다는 뜻입니다. [rustup](https://rustup.rs/)으로 설치하고 서버를 다시 실행하세요.
 다른 위치에 설치했다면 `OPTVIS_RUSTC` 환경 변수에 실행 파일의 전체 경로를 넣으면 됩니다.
