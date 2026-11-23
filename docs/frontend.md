@@ -5,9 +5,12 @@
 
 외부 라이브러리 없이 직접 구현한 줄 단위 diff 유틸리티.
 
-### `diffLines(baseLines, targetLines) : { lineStates, addedCount, removedCount } | null`
+### `diffLines(baseLines, targetLines, { ignoreRegisters } = {}) : { lineStates, addedCount, removedCount } | null`
 - **입력**: `baseLines`(기준이 되는 줄 배열, 기본은 O0 어셈블리이고 화면에서 고른 비교 기준 레벨), `targetLines`(비교 대상 줄 배열).
   "지시어 숨기기"가 켜져 있으면 `filterAssembly()`로 걸러낸 뒤의 줄이 들어옵니다.
+  `ignoreRegisters`(기본 `false`)가 `true`면 줄을 비교하기 전에 `normalizeRegisters()`(아래 `registers.js`)로 바꿔서
+  레지스터 이름만 다른 줄을 같은 줄로 봅니다. 문법(x86/arm64)은 `baseLines`에서, 레지스터가 하나도 없으면 `targetLines`에서 가립니다.
+  화면은 "레지스터 이름 무시" 체크박스(기본값 켜짐)의 값을 넘깁니다.
   `.file` 지시어는 내용과 상관없이 같은 줄로 봅니다. 코드가 아니라 컴파일 단위의 이름이고, rustc는 `-C incremental`을 쓰면 이 이름이 레벨마다 달라질 수 있습니다
   (지시어를 숨기면 `.file` 줄 자체가 빠지므로 "지시어 숨기기"를 끈 경우에만 의미가 있습니다)
 - **알고리즘**: 앞뒤의 같은 줄을 덜어내고 남은 줄을 정수로 바꾼 뒤, LCS(최장 공통 부분 수열)를 DP 테이블(`Uint16Array`)로 계산하고 되짚어가며(backtrack)
@@ -25,14 +28,49 @@
 
 ---
 
+## `registers.js`
+**파일**: [`frontend/src/registers.js`](../frontend/src/registers.js)
+
+`diffLines()`가 레지스터 이름만 다른 줄을 같은 줄로 보도록, **비교할 때만** 줄의 레지스터 이름을 일반화하는 순수 함수들.
+최적화 레벨이 바뀌면 같은 계산도 레지스터 할당이 달라져서(`mul w0, w8, w9` → `mul w8, w0, w1`) 원문 비교로는 줄 전체가 바뀐 것으로 보입니다.
+화면에 보이는 어셈블리는 바꾸지 않습니다. `registers.test.js`로 테스트합니다.
+
+### `detectRegisterSyntax(lines) : 'x86' | 'arm64' | null`
+- `%`가 붙은 x86 레지스터(`%eax`, `%rbp` 등)가 한 줄이라도 있으면 `'x86'`(AT&T 문법)
+- 없고 arm64 레지스터(`w0`, `x8`, `d1`, `v0` 등)가 있으면 `'arm64'`. arm64 레지스터는 맨 이름이라 x86에서는 기호 이름(전역 변수 `s1`)과
+  겹칠 수 있어서 x86을 먼저 찾습니다
+- 레지스터가 하나도 없으면 `null`. 따옴표 안(문자열 데이터)은 보지 않습니다
+
+### `normalizeRegisters(line, syntax) : string`
+- 레지스터를 `<크기#번호>`로 바꾼 줄을 돌려줍니다. 번호는 **줄 안에서** 그 물리 레지스터가 처음 나온 순서입니다
+  - x86: `movsd (%rdi,%rcx,8), %xmm2` → `movsd (<r64#0>,<r64#1>,8), <xmm#2>`
+  - arm64: `add x8, x8, w2, sxtw` → `add <x#0>, <x#0>, <w#1>, sxtw`, `fmul.2d v2, v2, v0[0]` → `fmul.2d <v#0>, <v#0>, <v#1>[0]`
+- 그래서 다음은 구분합니다
+  - 크기·종류: x86은 `r64`/`r32`/`r16`/`r8`/`r8h`/`xmm`/`ymm`/`zmm`/`k`/`mm`, arm64는 `x`/`w`와 `v`/`q`/`d`/`s`/`h`/`b`
+  - 같은 레지스터를 여러 번 쓰는지: `xorl %eax, %eax`(0으로 만드는 관용구)와 `xorl %ecx, %edx`는 다릅니다.
+    같은 물리 레지스터의 다른 크기도 같은 번호를 받으므로 `movslq %eax, %rax`(제자리 확장)와 `movslq %edi, %rax`도 다릅니다
+- 바꾸지 않는 레지스터: 레지스터 할당과 상관없이 역할이 정해진 것 — x86의 `rsp`/`rbp`/`rip` 계열, 세그먼트, x87 스택(`%st(1)`),
+  arm64의 `sp`, `wzr`/`xzr`, `x29`(프레임 포인터), `x30`(링크 레지스터)
+- arm64 레지스터는 앞뒤가 기호 이름의 일부이면 바꾸지 않습니다 (`.LBB0_2`, `_d1@PAGE`, `:lo12:s1`, `#0xd1`, 레이블 정의 `s1:`).
+  뒤에 오는 `.2d`, `.d[0]`, `[1]`은 벡터의 배치·원소 표기라 그대로 두고 레지스터만 바꿉니다
+- 줄 끝 주석(x86은 `#`, arm64는 `;`과 `//`)은 뺍니다. 컴파일러가 명령어를 풀어 적은 것이라(`# xmm2 = mem[0],zero`) 레지스터 이름이 다시 나오기 때문입니다.
+  주석만 있는 줄과 빈 줄은 그대로 돌려줍니다
+- 따옴표 안(`.asciz "%d"`, Windows의 따옴표로 감싼 기호 이름)은 바꾸지 않습니다
+- `syntax`가 `null`이면 줄을 그대로 돌려줍니다
+- **한계**: 번호를 줄마다 따로 매기므로 `mov w0, w8`과 `mov w8, w0`처럼 레지스터를 맞바꾼 줄도 같은 줄로 봅니다.
+  Linux arm64에서 `s1`, `d2`처럼 레지스터와 이름이 같은 함수·전역 변수를 피연산자로 쓰면(`bl s1`) 레지스터로 오인할 수 있습니다
+
+---
+
 ## `diffRunner.js` / `diff.worker.js`
 **파일**: [`frontend/src/diffRunner.js`](../frontend/src/diffRunner.js), [`frontend/src/diff.worker.js`](../frontend/src/diff.worker.js)
 
 `diffLines()`를 Web Worker에서 돌리는 실행기. 비교는 O(n·m)이라 어셈블리가 수천 줄이면 한 쌍에 수백 ms가 걸리고,
 화면 스레드에서 하면 그동안 화면이 멈춥니다 (표준 헤더를 쓰는 C++ 프로그램에서 "지시어 숨기기"를 끄면 세 열 비교에 약 1.4초).
-`diff.worker.js`는 `{ base, target }` 두 어셈블리 텍스트를 받아 `diffLines()`의 결과를 그대로 돌려주는 worker입니다.
+`diff.worker.js`는 `{ base, target, options }`(두 어셈블리 텍스트와 `diffLines()`의 옵션)를 받아 `diffLines()`의 결과를 그대로 돌려주는 worker입니다.
 
-### `createDiffRunner({ createWorker, maxConcurrent }) : (base, target) => { promise, cancel }`
+### `createDiffRunner({ createWorker, maxConcurrent }) : (base, target, options) => { promise, cancel }`
+- `options`(`{ ignoreRegisters }`)는 `diffLines()`에 그대로 넘깁니다 (worker로 보내고, 화면 스레드에서 계산할 때도 같음)
 - 비교마다 worker를 새로 띄우고 결과를 받으면 닫습니다. 그래서 더 기다릴 필요가 없어진 비교(기준 레벨이나 "지시어 숨기기"를 바꾼 경우 등)는
   `cancel()`로 계산 도중에도 바로 멈춥니다. `cancel()`한 비교의 `promise`는 이행되지 않습니다
 - 동시에 띄우는 worker는 `MAX_CONCURRENT_DIFFS`(2)개까지이고, 나머지는 기다렸다가 앞에서부터 시작합니다.
@@ -193,8 +231,10 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 `text`를 말풍선(`tooltip-bubble`)으로 보여준다. CSS의 `:hover`/`:focus` 선택자로만 동작하며
 별도 JS 상태(useState) 없이 구현됨.
 - 말풍선은 기본으로 아이콘의 왼쪽 끝에서 오른쪽으로 펼쳐진다
-- `align="end"`면 아이콘의 오른쪽 끝에 맞춰 왼쪽으로 펼친다(`tooltip-bubble-end`). 화면 오른쪽 끝에 놓이는 "지시어 숨기기"의 아이콘이 이렇게 써서,
-  말풍선이 화면 밖으로 나가 가로 스크롤이 생기지 않게 한다
+- `align="end"`면 아이콘의 오른쪽 끝에 맞춰 왼쪽으로 펼친다(`tooltip-bubble-end`). 화면 오른쪽 끝에 놓이는 "레지스터 이름 무시"와
+  "지시어 숨기기"의 아이콘이 이렇게 써서, 말풍선이 화면 밖으로 나가 가로 스크롤이 생기지 않게 한다.
+  이 둘은 `results-options` 묶음 안에 있어서 말풍선이 아이콘이 아니라 묶음의 오른쪽 끝에 맞춰진다
+  (`.results-options .info-tooltip { position: static }`). 왼쪽에 놓인 "레지스터 이름 무시"의 말풍선도 좁은 화면 밖으로 나가지 않게 하려는 것이다
 
 ### `formatBytes(bytes) : string`
 바이트 숫자를 사람이 읽기 좋은 문자열로 변환.
@@ -261,9 +301,15 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - 컴파일에 실패한 레벨은 비교할 어셈블리가 없으므로 버튼을 `disabled`로 막음
 - 누르면 `onSelect(level)`로 그 레벨 id를 올려보냄 (`App`의 `setBaseLevel`)
 
+### `RegisterNameToggle({ checked, onChange })` (컴포넌트)
+"비교 기준" 버튼 줄의 오른쪽, "지시어 숨기기" 왼쪽에 놓이는 "레지스터 이름 무시" 체크박스와 설명 툴팁(`align="end"`).
+켜져 있으면 diff가 레지스터 이름만 다른 줄을 같은 줄로 봅니다(`diffLines()`의 `ignoreRegisters`).
+바꾸면 `onChange(checked)`로 올려보냅니다 (`App`의 `setIgnoreRegisters`). 다시 컴파일하지 않고, 보이는 어셈블리도 그대로이며
+강조와 배지만 다시 계산합니다.
+
 ### `DirectiveFilterToggle({ checked, onChange })` (컴포넌트)
 "비교 기준" 버튼 줄의 오른쪽 끝에 놓이는 "지시어 숨기기" 체크박스와 설명 툴팁(`align="end"`).
-좁은 화면에서 다음 줄로 넘어가도 `margin-left: auto`로 오른쪽 끝에 붙어 있습니다.
+"레지스터 이름 무시"와 함께 `results-options` 묶음에 들어 있고, 좁은 화면에서 다음 줄로 넘어가도 묶음이 `margin-left: auto`로 오른쪽 끝에 붙어 있습니다.
 바꾸면 `onChange(checked)`로 올려보냅니다 (`App`의 `setHideDirectives`). 다시 컴파일하지 않고 화면에서만 바뀝니다.
 "실행 시간 측정" 체크박스와 같은 `option-toggle` 스타일을 씁니다.
 
@@ -278,12 +324,13 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - 목록은 높이를 제한하고 안에서 스크롤함 (레벨마다 건수가 달라도 어셈블리가 너무 아래로 밀리지 않게)
 - `remarks`가 빈 배열이면 "이 레벨에서 컴파일러가 남긴 기록이 없습니다.", `omittedCount`가 있으면 생략한 건수를 표시
 
-### `OptimizationColumn({ result, base, onGoToLine })` (컴포넌트)
+### `OptimizationColumn({ result, base, ignoreRegisters, onGoToLine })` (컴포넌트)
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과입니다
 (기본은 응답의 첫 번째 레벨, `BaseLevelSelector`로 고르면 그 레벨).
 `result`와 `base`는 `App`의 `shownResults`에서 오므로, "지시어 숨기기"가 켜져 있으면 `assembly`가 이미 걸러진 텍스트입니다.
 `memo`로 감싸서 결과나 기준이 바뀔 때만 다시 그립니다 (에디터에 글자를 칠 때마다 `App`이 다시 그려지기 때문).
-기준과의 비교는 `useDiffSummary(baseAssembly, assembly)` 훅이 `runDiff()`로 worker에 맡깁니다. 두 어셈블리가 바뀌면 이전 비교를 취소하고 새로 시작하며,
+기준과의 비교는 `useDiffSummary(baseAssembly, assembly, ignoreRegisters)` 훅이 `runDiff()`로 worker에 맡깁니다.
+`ignoreRegisters`는 `App`의 "레지스터 이름 무시" 상태입니다. 두 어셈블리나 `ignoreRegisters`가 바뀌면 이전 비교를 취소하고 새로 시작하며,
 결과가 오기 전에는 `undefined`, 비교를 건너뛰었거나 비교하지 않으면 `null`을 돌려줍니다.
 - 헤더에 `result.levelLabel`(예: `-O0`) + `InfoTooltip(result.levelDescription)`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
 - 기준 레벨 자신이면 헤더에 "기준" 배지를 붙이고 테두리를 강조색(`opt-column-base`)으로 표시
@@ -308,6 +355,7 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 - `baseLevel`: "비교 기준"으로 고른 레벨 id. `null`이면 첫 번째 결과를 기준으로 씀.
   렌더링할 때 `shownResults`에서 이 id를 찾고, 없으면 `shownResults[0]`을 기준(`base`)으로 삼음
 - `hideDirectives`: "지시어 숨기기" 체크박스 상태 (기본 `true`). 다시 비교해도 유지됨
+- `ignoreRegisters`: "레지스터 이름 무시" 체크박스 상태 (기본 `true`). 다시 비교해도 유지되고, 모든 `OptimizationColumn`에 넘김
 - `loading`: 요청 진행 중 여부 (버튼 비활성화 + "컴파일 중..." 텍스트에 사용)
 - `error`: 요청 실패 시 에러 메시지
 - `compilers`: `GET /api/compilers` 응답(`{id, label, available, language, languageLabel}` 배열). 받기 전이나 실패 시 `FALLBACK_COMPILERS`
@@ -366,7 +414,8 @@ remark를 뽑고 종류를 붙이는 일은 전부 백엔드가 하므로([backe
 3. "비교하기" 버튼, 에러 메시지(있으면)
 4. `results`가 있으면:
    - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
-   - `BaseLevelSelector`("비교 기준" 버튼 그룹)와 `DirectiveFilterToggle`("지시어 숨기기")을 한 줄(`results-toolbar`)에 배치
+   - `BaseLevelSelector`("비교 기준" 버튼 그룹)와, `results-options`로 묶은 `RegisterNameToggle`("레지스터 이름 무시")·`DirectiveFilterToggle`("지시어 숨기기")을
+     한 줄(`results-toolbar`)에 배치
    - `remarks`가 있는 결과가 하나라도 있으면 "최적화 기록"의 적용/놓침이 무엇이고 줄 번호를 누르면 입력창의 그 줄로 간다는 한 줄 안내.
      비교한 뒤 코드를 고쳤으면(`code !== comparedCode`) 노란색으로 "줄 번호가 지금 코드와 어긋날 수 있습니다"를 덧붙임
    - `base`(기본은 `shownResults[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 `shownResults`의 각 결과를 `OptimizationColumn`으로 렌더링

@@ -14,8 +14,8 @@ class FakeWorker {
   }
 
   respond() {
-    const { base, target } = this.received
-    this.onmessage({ data: diffLines(base.split('\n'), target.split('\n')) })
+    const { base, target, options } = this.received
+    this.onmessage({ data: diffLines(base.split('\n'), target.split('\n'), options) })
   }
 
   fail() {
@@ -52,11 +52,23 @@ describe('createDiffRunner', () => {
     const { workers, runDiff } = setUp()
 
     const job = runDiff(BASE, TARGET)
-    expect(workers[0].received).toEqual({ base: BASE, target: TARGET })
+    expect(workers[0].received).toEqual({ base: BASE, target: TARGET, options: {} })
     workers[0].respond()
 
     await expect(job.promise).resolves.toEqual(diffLines(BASE.split('\n'), TARGET.split('\n')))
     expect(workers[0].terminated).toBe(true)
+  })
+
+  it('옵션을 worker에 넘긴다', async () => {
+    const { workers, runDiff } = setUp()
+    const base = 'mul w0, w8, w9\nret'
+    const target = 'mul w8, w0, w1\nret'
+
+    const job = runDiff(base, target, { ignoreRegisters: true })
+    expect(workers[0].received.options).toEqual({ ignoreRegisters: true })
+    workers[0].respond()
+
+    await expect(job.promise).resolves.toMatchObject({ lineStates: ['same', 'same'], addedCount: 0 })
   })
 
   it('정해진 수까지만 동시에 계산하고, 하나가 끝나면 기다리던 비교를 시작한다', () => {
@@ -107,6 +119,9 @@ describe('createDiffRunner', () => {
     })
 
     await expect(runDiff(BASE, TARGET).promise).resolves.toEqual(diffLines(BASE.split('\n'), TARGET.split('\n')))
+    await expect(runDiff('mul w0, w8, w9', 'mul w8, w0, w1', { ignoreRegisters: true }).promise).resolves.toMatchObject({
+      addedCount: 0,
+    })
   })
 
   it('worker가 실패하면 화면 스레드에서 계산하고, 기다리던 비교를 이어서 시작한다', async () => {

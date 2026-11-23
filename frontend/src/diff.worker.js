@@ -3,5 +3,5 @@
 import { diffLines } from './diff'
 
 self.onmessage = ({ data }) => {
-  self.postMessage(diffLines(data.base.split('\n'), data.target.split('\n')))
+  self.postMessage(diffLines(data.base.split('\n'), data.target.split('\n'), data.options))
 }

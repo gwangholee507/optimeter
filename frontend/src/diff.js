@@ -1,3 +1,5 @@
+import { detectRegisterSyntax, normalizeRegisters } from './registers'
+
 // LCS 표의 칸 수 상한 (줄 수의 곱). 칸마다 2바이트라 300MB쯤 되며, 이보다 크면 비교를 건너뛴다.
 // Rust는 짧은 프로그램도 -O0에서 수만 줄이 나오므로 표를 무한정 키울 수 없다.
 export const MAX_DIFF_CELLS = 150_000_000
@@ -7,6 +9,14 @@ const FILE_DIRECTIVE = /^\s*\.file\s/
 
 function comparableLine(line) {
   return FILE_DIRECTIVE.test(line) ? '.file' : line
+}
+
+/** 비교에 쓸 줄을 만드는 함수. ignoreRegisters면 레지스터 이름만 다른 줄이 같아지도록 바꾼다 (registers.js). */
+function comparator(baseLines, targetLines, ignoreRegisters) {
+  if (!ignoreRegisters) return comparableLine
+  const syntax = detectRegisterSyntax(baseLines) ?? detectRegisterSyntax(targetLines)
+  if (syntax === null) return comparableLine
+  return (line) => normalizeRegisters(comparableLine(line), syntax)
 }
 
 /** 줄을 정수로 바꿔서, 표를 채울 때 문자열 대신 정수를 비교한다. */
@@ -28,11 +38,15 @@ function internLines(base, target) {
  * target의 각 줄이 base에도 "같은 순서로" 존재하면 'same', 아니면 'added'로 표시하고,
  * base에만 있고 target에는 없는 줄의 개수를 removedCount로 셉니다.
  *
+ * options.ignoreRegisters가 true면 레지스터 이름만 다른 줄(mul w0, w8, w9와 mul w8, w0, w1)을 같은 줄로 봅니다.
+ * 이때 줄 끝 주석은 비교에서 뺍니다. 규칙은 registers.js의 normalizeRegisters를 참고하세요.
+ *
  * O(n*m) DP라서 앞뒤의 같은 줄을 먼저 덜어내고, 그래도 표가 MAX_DIFF_CELLS를 넘으면 null을 돌려줍니다.
  */
-export function diffLines(baseLines, targetLines) {
-  const base = baseLines.map(comparableLine)
-  const target = targetLines.map(comparableLine)
+export function diffLines(baseLines, targetLines, { ignoreRegisters = false } = {}) {
+  const compare = comparator(baseLines, targetLines, ignoreRegisters)
+  const base = baseLines.map(compare)
+  const target = targetLines.map(compare)
 
   // 앞뒤의 같은 줄은 표에 넣지 않는다 (LCS 길이는 그대로다)
   const shorter = Math.min(base.length, target.length)

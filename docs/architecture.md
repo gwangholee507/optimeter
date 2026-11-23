@@ -44,6 +44,8 @@
    ▼
 [frontend/src/OptimizationColumn + AssemblyView]
    │ 10. diff.js 의 diffLines() 로 기준 레벨 대비 달라진 줄 계산
+   │     ("레지스터 이름 무시"가 켜져 있으면(기본값) registers.js 로 레지스터 이름을 일반화해서 비교 —
+   │      레지스터 이름만 다른 줄은 같은 줄로 봄. 화면에 보이는 어셈블리는 그대로)
    │     (diffRunner.js가 비교마다 Web Worker를 띄워서 계산 — 수천 줄을 비교하는 동안 화면이 멈추지 않음.
    │      결과가 오기 전에는 열에 "비교 중…"을 표시하고 어셈블리는 강조 없이 먼저 보여줌)
    ▼
