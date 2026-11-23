@@ -310,33 +310,56 @@ function DirectiveFilterToggle({ checked, onChange }) {
   )
 }
 
+// 켜져 있으면 레지스터 이름만 다른 줄을 diff에서 같은 줄로 본다 (registers.js). 화면에 보이는 어셈블리는 그대로다.
+function RegisterNameToggle({ checked, onChange }) {
+  return (
+    <label className="option-toggle">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      레지스터 이름 무시
+      <InfoTooltip
+        align="end"
+        text="최적화 레벨이 바뀌면 같은 계산도 다른 레지스터에 담겨서(mul w0, w8, w9 → mul w8, w0, w1) 줄 전체가 바뀐 것처럼 보입니다. 켜 두면 레지스터 이름만 다른 줄은 같은 줄로 보고 초록색으로 강조하지 않습니다. 크기(w0과 x0, %eax와 %rax)와 같은 레지스터를 여러 번 쓰는지(xorl %eax, %eax)는 구분하고, 스택 포인터·프레임 포인터처럼 정해진 역할이 있는 레지스터는 이름 그대로 비교합니다. 줄 끝 주석은 비교에서 뺍니다. 보이는 어셈블리는 그대로이고 강조와 (+추가 / -삭제) 배지만 바뀝니다." />
+    </label>
+  )
+}
+
 // 기준 어셈블리와의 비교(diffLines)를 worker에서 계산한다. 어셈블리가 수천 줄이면 비교에 수백 ms가 걸려서
 // 화면 스레드에서 하면 그동안 화면이 멈춘다. 두 어셈블리 중 하나라도 없으면 비교하지 않는다.
+// ignoreRegisters는 diffLines의 같은 이름 옵션이다 (레지스터 이름만 다른 줄을 같은 줄로 본다).
 // 돌려주는 값: 결과를 기다리는 중이면 undefined, 줄이 너무 많아 비교를 건너뛰었거나 비교하지 않으면 null.
-function useDiffSummary(baseAssembly, assembly) {
+function useDiffSummary(baseAssembly, assembly, ignoreRegisters) {
   const [finished, setFinished] = useState(null)
   const comparing = baseAssembly != null && assembly != null
 
   useEffect(() => {
     if (!comparing) return undefined
-    const job = runDiff(baseAssembly, assembly)
-    job.promise.then((summary) => setFinished({ baseAssembly, assembly, summary }))
+    const job = runDiff(baseAssembly, assembly, { ignoreRegisters })
+    job.promise.then((summary) => setFinished({ baseAssembly, assembly, ignoreRegisters, summary }))
     return job.cancel
-  }, [comparing, baseAssembly, assembly])
+  }, [comparing, baseAssembly, assembly, ignoreRegisters])
 
   if (!comparing) return null
   // 입력이 바뀌었는데 이전 입력의 결과가 남아 있으면 아직 기다리는 중이다
-  return finished?.baseAssembly === baseAssembly && finished?.assembly === assembly ? finished.summary : undefined
+  return finished?.baseAssembly === baseAssembly &&
+    finished?.assembly === assembly &&
+    finished?.ignoreRegisters === ignoreRegisters
+    ? finished.summary
+    : undefined
 }
 
 // base: 비교 기준이 되는 결과 (기본값은 서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
 // 에디터에 글자를 칠 때마다 App이 다시 그려지므로 memo로 결과가 바뀔 때만 다시 그린다.
 // onGoToLine은 최적화 기록의 줄 번호를 눌렀을 때 부른다. memo가 깨지지 않게 App이 바뀌지 않는 함수를 넘긴다.
-const OptimizationColumn = memo(function OptimizationColumn({ result, base, onGoToLine }) {
+// ignoreRegisters가 true면 레지스터 이름만 다른 줄을 기준과 같은 줄로 본다 ("레지스터 이름 무시").
+const OptimizationColumn = memo(function OptimizationColumn({ result, base, ignoreRegisters, onGoToLine }) {
   const isBaseline = result.level === base.level
   const baseAssembly = !isBaseline && base.success ? base.assembly : null
   const comparing = result.success && baseAssembly != null
-  const diffSummary = useDiffSummary(comparing ? baseAssembly : null, comparing ? result.assembly : null)
+  const diffSummary = useDiffSummary(
+    comparing ? baseAssembly : null,
+    comparing ? result.assembly : null,
+    ignoreRegisters,
+  )
 
   return (
     <div className={isBaseline ? 'opt-column opt-column-base' : 'opt-column'}>
@@ -406,6 +429,8 @@ function App() {
   const [baseLevel, setBaseLevel] = useState(null)
   // 다시 비교해도 유지한다 (사용자가 끈 상태로 계속 보고 싶을 수 있다)
   const [hideDirectives, setHideDirectives] = useState(true)
+  // 레지스터 이름만 다른 줄을 diff에서 같은 줄로 볼지. 지시어 숨기기처럼 다시 비교해도 유지한다
+  const [ignoreRegisters, setIgnoreRegisters] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -576,7 +601,10 @@ function App() {
           </p>
           <div className="results-toolbar">
             <BaseLevelSelector results={shownResults} base={base} onSelect={setBaseLevel} />
-            <DirectiveFilterToggle checked={hideDirectives} onChange={setHideDirectives} />
+            <div className="results-options">
+              <RegisterNameToggle checked={ignoreRegisters} onChange={setIgnoreRegisters} />
+              <DirectiveFilterToggle checked={hideDirectives} onChange={setHideDirectives} />
+            </div>
           </div>
           {shownResults.some((r) => r.remarks != null) && (
             <p className="remark-help">
@@ -594,7 +622,13 @@ function App() {
           )}
           <div className="results-section">
             {shownResults.map((r) => (
-              <OptimizationColumn key={r.level} result={r} base={base} onGoToLine={goToLine} />
+              <OptimizationColumn
+                key={r.level}
+                result={r}
+                base={base}
+                ignoreRegisters={ignoreRegisters}
+                onGoToLine={goToLine}
+              />
             ))}
           </div>
         </section>

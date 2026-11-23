@@ -115,6 +115,47 @@ describe('diffLines', () => {
     expect(removedCount).toBe(1)
   })
 
+  it('기본값은 레지스터 이름이 다르면 다른 줄로 본다', () => {
+    const { lineStates, addedCount, removedCount } = diffLines(['\tmul\tw0, w8, w9', '\tret'], ['\tmul\tw8, w0, w1', '\tret'])
+
+    expect(lineStates).toEqual(['added', 'same'])
+    expect(addedCount).toBe(1)
+    expect(removedCount).toBe(1)
+  })
+
+  it('ignoreRegisters면 레지스터 이름만 다른 줄을 같은 줄로 본다 (arm64)', () => {
+    const o1 = ['\tldr\tw8, [x0]', '\tmul\tw0, w8, w9', '\tret']
+    const o2 = ['\tldr\tw9, [x1]', '\tmul\tw8, w9, w10', '\tmov\tw0, w8', '\tret']
+
+    const { lineStates, addedCount, removedCount } = diffLines(o1, o2, { ignoreRegisters: true })
+
+    expect(lineStates).toEqual(['same', 'same', 'added', 'same'])
+    expect(addedCount).toBe(1)
+    expect(removedCount).toBe(0)
+  })
+
+  it('ignoreRegisters면 줄 끝 주석이 달라도 같은 줄로 본다 (x86)', () => {
+    const base = ['\tmovsd\t(%rdi,%rcx,8), %xmm2            # xmm2 = mem[0],zero', '\tretq']
+    const target = ['\tmovsd\t(%rcx,%rdx,8), %xmm1            # xmm1 = mem[0],zero', '\tretq']
+
+    expect(diffLines(base, target).addedCount).toBe(1)
+    expect(diffLines(base, target, { ignoreRegisters: true }).addedCount).toBe(0)
+  })
+
+  it('ignoreRegisters여도 같은 레지스터를 쓰는 모양이 다르면 다른 줄이다', () => {
+    const { lineStates } = diffLines(['\txorl\t%ecx, %edx'], ['\txorl\t%eax, %eax'], { ignoreRegisters: true })
+
+    expect(lineStates).toEqual(['added'])
+  })
+
+  it('기준에 레지스터가 없으면 비교 대상에서 문법을 가린다', () => {
+    const { lineStates } = diffLines(['\tret', '\tmov\tw0, w1'], ['\tret', '\tmov\tw2, w3'], {
+      ignoreRegisters: true,
+    })
+
+    expect(lineStates).toEqual(['same', 'same'])
+  })
+
   it('수만 줄짜리 어셈블리도 비교한다', () => {
     const base = Array.from({ length: 12_000 }, (_, i) => `base ${i}`)
     const target = Array.from({ length: 4_000 }, (_, i) => (i % 2 ? `base ${i * 3}` : `target ${i}`))

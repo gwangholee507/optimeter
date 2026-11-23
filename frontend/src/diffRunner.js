@@ -7,8 +7,8 @@ function createDiffWorker() {
   return new Worker(new URL('./diff.worker.js', import.meta.url), { type: 'module' })
 }
 
-function diffOnThisThread(base, target) {
-  return diffLines(base.split('\n'), target.split('\n'))
+function diffOnThisThread(base, target, options) {
+  return diffLines(base.split('\n'), target.split('\n'), options)
 }
 
 /**
@@ -18,7 +18,8 @@ function diffOnThisThread(base, target) {
  * 지시어 필터를 바꾼 경우 등)는 cancel로 계산 도중에도 바로 멈춘다. 대기 중인 비교는 앞에서부터 시작한다.
  * worker를 띄우지 못하거나 worker가 실패하면 예전처럼 화면 스레드에서 계산한다 (느려도 결과는 같다).
  *
- * 돌려주는 함수는 { promise, cancel }을 돌려준다. promise는 diffLines의 결과로 이행되고,
+ * 돌려주는 함수는 (base, target, options)를 받아 { promise, cancel }을 돌려준다. options는 diffLines에 그대로 넘기고,
+ * promise는 diffLines의 결과로 이행되며,
  * cancel한 비교의 promise는 이행되지 않는다.
  */
 export function createDiffRunner({ createWorker = createDiffWorker, maxConcurrent = MAX_CONCURRENT_DIFFS } = {}) {
@@ -32,7 +33,7 @@ export function createDiffRunner({ createWorker = createDiffWorker, maxConcurren
     }
   }
 
-  return function runDiff(base, target) {
+  return function runDiff(base, target, options = {}) {
     let state = 'waiting' // 'waiting' → 'running' → 'done'
     let worker = null
     let resolve
@@ -55,7 +56,7 @@ export function createDiffRunner({ createWorker = createDiffWorker, maxConcurren
 
     function fallBack(reason) {
       console.warn('diff worker를 쓸 수 없어 화면 스레드에서 비교합니다:', reason)
-      finish(diffOnThisThread(base, target))
+      finish(diffOnThisThread(base, target, options))
     }
 
     const job = {
@@ -72,7 +73,7 @@ export function createDiffRunner({ createWorker = createDiffWorker, maxConcurren
           event.preventDefault?.()
           fallBack(event.message ?? event)
         }
-        worker.postMessage({ base, target })
+        worker.postMessage({ base, target, options })
       },
     }
     waiting.push(job)
