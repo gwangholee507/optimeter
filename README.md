@@ -6,26 +6,32 @@
 </h1>
 
 [![CI](https://github.com/gwangholee507/optimeter/actions/workflows/ci.yml/badge.svg)](https://github.com/gwangholee507/optimeter/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gwangholee507/optimeter)](https://github.com/gwangholee507/optimeter/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **Optimeter**는 컴파일러 최적화 옵션 비교기입니다. 이름은 **opti**mization과 **meter**(측정기)를 합친 말로,
 최적화가 코드를 어떻게 바꾸는지 눈으로 보고 숫자로 잰다는 뜻입니다.
 
 C, C++, Rust 코드를 입력하면 **선택한 컴파일러**(Clang/GNU GCC, C++은 Clang++/GNU G++, Rust는 rustc)의
-최적화 레벨(C/C++은 `-O0`~`-O3`, Rust는 `opt-level` `0`~`3`, `s`, `z`)을 각각 적용해서
+최적화 레벨(C/C++은 `-O0`\~`-O3`, Rust는 `opt-level` `0`\~`3`, `s`, `z`)을 각각 적용해서
 **어셈블리 코드가 어떻게 달라지는지, 컴파일된 코드 크기와 컴파일 시간, (옵션으로) 실제 실행 시간이
 얼마나 차이 나는지**를 레벨별 열로 나란히 보여주는 웹앱입니다.
 
 "컴파일러 최적화가 대체 뭘 하는 거지?"를 직접 눈으로 확인해보기 위한 학습용 도구입니다.
 
+![기본 C 예제를 Clang -O0~-O3로 비교한 화면](docs/images/screenshot-overview.png)
+
+<sub>기본 C 예제를 Clang으로 `-O0`\~`-O3` 비교한 화면입니다 (Linux x86-64). 바뀐 어셈블리 줄은 초록색으로, 열 위에는 컴파일러가 남긴 최적화 기록이 나옵니다.</sub>
+
 ## 이런 걸 볼 수 있어요
 
-- `-O0` 대비 `-O1`~`-O3`에서 바뀐 어셈블리 줄이 초록색으로 강조되어, 최적화가
+- `-O0` 대비 `-O1`\~`-O3`에서 바뀐 어셈블리 줄이 초록색으로 강조되어, 최적화가
   코드의 어느 부분을 어떻게 바꿨는지 바로 눈에 들어옵니다.
 - `.cfi_startproc`, `.section` 같은 어셈블러 지시어와 디버그 정보는 기본으로 숨겨서, 실제로 실행되는 명령어만 비교합니다
   (체크박스 하나로 원본을 볼 수도 있습니다).
 - 레지스터 이름만 다른 줄(`mul w0, w8, w9`와 `mul w8, w0, w1`)은 기본으로 같은 줄로 봐서, 레지스터 할당만 달라진 줄은 바뀐 줄로 세지 않습니다 (이것도 체크박스로 끌 수 있습니다).
 - 열마다 **컴파일러가 직접 남긴 최적화 기록**이 나옵니다. "8행의 `square` 호출을 인라인했다", "7행의 루프는 벡터화하지 못했다"처럼
-  무슨 최적화를 했고 무엇을 못 했는지를 소스 줄 번호와 함께 보여줍니다 (C/C++).
+  무슨 최적화를 했고 무엇을 못 했는지를 소스 줄 번호와 함께 보여줍니다 (C/C++). 줄 번호를 누르면 코드 입력창의 그 줄로 이동합니다.
 - 각 레벨별 **오브젝트 파일 크기**와 **컴파일 시간**을 함께 비교합니다.
 - **언어(C/C++/Rust)와 컴파일러(Clang/GCC)를 골라서** 같은 코드를 서로 다른 컴파일러가 어떻게 최적화하는지 비교할 수 있습니다.
 - (옵션) **실행 시간 측정**을 켜면 `main()`이 있는 코드를 실제로 링크·실행해서 최적화 레벨 간 실행 속도 차이까지 볼 수 있습니다.
@@ -36,6 +42,15 @@ C, C++, Rust 코드를 입력하면 **선택한 컴파일러**(Clang/GNU GCC, C+
 `mul w0, w0, w0` 한 줄로 줄어드는 걸 확인할 수 있습니다.
 Rust의 `(0..n).map(square).sum()` 같은 반복자 코드는 `opt-level=0`에서 수백 줄이던 어셈블리가
 `opt-level=2`에서 수십 줄로 줄어듭니다.
+
+최적화 기록의 `7행`을 누르면 코드 입력창에서 그 루프가 있는 7행이 강조됩니다.
+
+![최적화 기록의 줄 번호를 눌러 코드의 7행으로 이동한 화면](docs/images/screenshot-line-jump.png)
+
+`main()`이 있는 코드에서 **실행 시간 측정**을 켜면 열마다 실행 시간이 붙습니다.
+아래 예제는 `-O0`에서 233ms이던 실행 시간이 `-O3`에서 76ms로 줄었습니다 (Linux x86-64, 측정 환경마다 다름).
+
+![실행 시간 측정을 켜고 비교한 화면](docs/images/screenshot-run-time.png)
 
 ## 기술 스택
 
@@ -52,6 +67,7 @@ Rust의 `(0..n).map(square).sum()` 같은 반복자 코드는 `opt-level=0`에�
 .
 ├── backend/   # Spring Boot 서버 — 컴파일 실행, 결과 비교 (배포할 때는 화면도 함께 내보냄)
 ├── frontend/  # React UI — 코드 입력, 결과 렌더링
+├── packaging/ # Mac 앱(.dmg)을 만드는 스크립트 (jpackage)
 └── docs/      # 문서 모음 (아래 참고)
 ```
 
@@ -69,7 +85,8 @@ macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에�
 - (선택) C++ 컴파일러: `clang++`, `g++` (설치하면 언어 드롭다운에서 C++을 고를 수 있음)
 - (선택) Rust 컴파일러: `rustc` ([rustup](https://rustup.rs/)으로 설치하면 언어 드롭다운에서 Rust를 고를 수 있음)
 
-실행만 할 때는 이 두 가지면 됩니다. Maven과 Node.js는 따로 설치하지 않아도 됩니다.
+실행만 할 때 꼭 필요한 것은 JDK와 C 컴파일러 두 가지입니다 (Mac 앱으로 설치하면 C 컴파일러만).
+C++와 Rust 컴파일러는 그 언어를 쓸 때만 설치하면 되고, Maven과 Node.js는 따로 설치하지 않아도 됩니다.
 
 | OS | 컴파일러 설치 |
 |---|---|
@@ -93,7 +110,7 @@ Intel Mac은 `optimeter-<버전>-macos-x64.dmg`를 내려받아 Optimeter를 응
 ### 방법 2 — jar 파일 내려받아 실행 (모든 OS)
 
 [Releases](https://github.com/gwangholee507/optimeter/releases) 페이지에 올라온 `optimeter-<버전>.jar`를 내려받아 **터미널에서** 실행합니다.
-(올라온 릴리스가 없다면 방법 3을 사용하세요. Mac에서 jar를 더블클릭하면 서명 없는 파일이라 열리지 않습니다.)
+(Mac에서 jar를 더블클릭하면 서명 없는 파일이라 열리지 않으니, Mac에서는 방법 1을 추천합니다.)
 
 ```bash
 java -jar optimeter-<버전>.jar
@@ -169,12 +186,12 @@ cd frontend && npm test
 
 ## 참고 자료
 
-- [Clang 공식 문서 — 최적화 옵션](https://clang.llvm.org/docs/CommandGuide/clang.html) — `-O0`~`-O3`이 실제로 어떤 옵션 집합인지
+- [Clang 공식 문서 — 최적화 옵션](https://clang.llvm.org/docs/CommandGuide/clang.html) — `-O0`\~`-O3`이 실제로 어떤 옵션 집합인지
 - [rustc 코드 생성 옵션](https://doc.rust-lang.org/rustc/codegen-options/index.html) — Rust의 `-C opt-level`이 받는 값과 다른 옵션들
 - [Compiler Explorer (godbolt.org)](https://godbolt.org/) — 더 다양한 컴파일러/아키텍처로 어셈블리를 비교하고 싶다면
 - [LLVM 최적화 파이프라인 개요](https://llvm.org/docs/Passes.html) — clang이 내부적으로 어떤 최적화 패스를 거치는지 더 깊게 알고 싶다면
 
-## 참고
+## 알아 둘 점
 
 - 서버를 실행하는 PC에 설치된 컴파일러를 그대로 사용합니다. 그래서 어셈블리는 그 PC의 OS와
   CPU 아키텍처(ARM64, x86-64 등)에 맞춰 나옵니다. 같은 코드라도 macOS, Linux, Windows에서
@@ -184,3 +201,11 @@ cd frontend && npm test
 - 자기 PC에서 혼자 쓰는 것을 전제로 한 프로그램입니다. 별도 샌드박싱 없이 그 PC의 권한으로 컴파일과
   실행을 수행하므로, 서버는 기본적으로 이 PC에서 오는 접속만 받습니다. 여러 사람이 접속하는 서버로
   운영하려면 Docker 등으로 격리 + 리소스 제한을 먼저 추가해야 합니다.
+- 서버는 주소창에 `localhost`나 IP 주소를 넣어 들어온 요청만 받고, 그 밖의 이름으로 온 요청은 403으로 거부합니다.
+  다른 웹사이트가 자기 도메인을 이 PC의 주소로 바꿔치기해서 이 서버를 부르는 공격(DNS 리바인딩)을 막기 위함입니다.
+  다른 이름(예: `my-mac.local`)으로 접속해야 한다면 `--optimeter.allowed-hosts=my-mac.local` 또는
+  환경변수 `OPTVIS_ALLOWED_HOSTS`에 허용할 이름을 쉼표로 적습니다.
+
+## 라이선스
+
+[MIT](LICENSE)
